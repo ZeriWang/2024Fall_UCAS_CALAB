@@ -14,8 +14,7 @@ INFO: [VRFC 10-2263] Analyzing Verilog file "E:/Code/CAcode/2024Fall_UCAS_CALAB/
 INFO: [VRFC 10-311] analyzing module confreg
 INFO: [VRFC 10-2263] Analyzing Verilog file "E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/myCPU/mycpu_top.v" into library xil_defaultlib
 INFO: [VRFC 10-311] analyzing module mycpu_top
-INFO: [VRFC 10-2458] undeclared symbol rj_eq_rd, assumed default net type wire [E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/myCPU/mycpu_top.v:238]
-INFO: [VRFC 10-2458] undeclared symbol final_result, assumed default net type wire [E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/myCPU/mycpu_top.v:263]
+INFO: [VRFC 10-2458] undeclared symbol rj_eq_rd, assumed default net type wire [E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/myCPU/mycpu_top.v:240]
 INFO: [VRFC 10-2263] Analyzing Verilog file "E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/myCPU/regfile.v" into library xil_defaultlib
 INFO: [VRFC 10-311] analyzing module regfile
 INFO: [VRFC 10-2263] Analyzing Verilog file "E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/soc_verify/soc_dram/rtl/soc_lite_top.v" into library xil_defaultlib

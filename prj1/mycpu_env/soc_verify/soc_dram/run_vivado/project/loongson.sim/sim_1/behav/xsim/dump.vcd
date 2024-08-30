@@ -1,5 +1,5 @@
 $date
-   Fri Aug 30 20:16:20 2024
+   Fri Aug 30 22:08:20 2024
 $end
 $version
   2019.2
@@ -137,8 +137,8 @@ $var wire 32 1! alu_src1 [31:0] $end
 $var wire 32 2! alu_src2 [31:0] $end
 $var wire 32 3! alu_result [31:0] $end
 $var wire 32 4! mem_result [31:0] $end
-$var wire 1 5! rj_eq_rd $end
-$var wire 1 6! final_result $end
+$var wire 32 5! final_result [31:0] $end
+$var wire 1 6! rj_eq_rd $end
 $scope module u_dec0 $end
 $var wire 6 _ in [5:0] $end
 $var wire 64 j out [63:0] $end
@@ -587,8 +587,8 @@ bx /
 bx /!
 b0 /"
 b0 /#
-b0x 0
-b0x 0!
+bx 0
+bx 0!
 b0 0"
 b0 0#
 01
@@ -608,7 +608,7 @@ bx 4!
 b1 4"
 b1 4#
 bx 5
-x5!
+bx 5!
 b1 5"
 b100000 5#
 b0 6
@@ -1025,8 +1025,8 @@ b0 2!
 b0 3!
 b0 4!
 b11011111111111111111111111100 5
-15!
-06!
+b0 5!
+16!
 b0 7
 07!
 08
