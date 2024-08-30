@@ -112,6 +112,8 @@ wire [31:0] alu_result ;
 
 wire [31:0] mem_result;
 
+wire [31:0] final_result; // debug: final_resultÎ´ÉùÃ÷
+
 assign seq_pc       = pc + 3'h4;
 assign nextpc       = br_taken ? br_target : seq_pc;
 
@@ -250,7 +252,7 @@ assign alu_src2 = src2_is_imm ? imm : rkd_value;
 
 alu u_alu(
     .alu_op     (alu_op    ),
-    .alu_src1   (alu_src1  ), // debug: å®ä¾‹åŒ–ALUæ¨¡å—æ—¶ï¼Œalu_src1 å’Œ alu_src2 éƒ½è¿æ¥åˆ°äº† alu_src2 ä¿¡å·ï¼Œ å°† alu_src1 ä¿¡å·è¿æ¥åˆ° alu_src1 ä¿¡å·
+    .alu_src1   (alu_src1  ), // debug: ÊµÀı»¯ALUÄ£¿éÊ±£¬alu_src1 ºÍ alu_src2 ¶¼Á¬½Óµ½ÁË alu_src2 ĞÅºÅ£¬ ½« alu_src1 ĞÅºÅÁ¬½Óµ½ alu_src1 ĞÅºÅ
     .alu_src2   (alu_src2  ),
     .alu_result (alu_result)
     );
@@ -268,7 +270,7 @@ assign rf_wdata = final_result;
 
 // debug info generate
 assign debug_wb_pc       = pc;
-assign debug_wb_rf_we   = {4{rf_we}};  // debug: ç”Ÿæˆdebugä¿¡æ¯æ—¶ï¼Œåº”ä¸ºdebug_wb_rf_we
+assign debug_wb_rf_we   = {4{rf_we}};  // debug: Éú³ÉdebugĞÅÏ¢Ê±£¬Ó¦Îªdebug_wb_rf_we
 assign debug_wb_rf_wnum  = dest;
 assign debug_wb_rf_wdata = final_result;
 

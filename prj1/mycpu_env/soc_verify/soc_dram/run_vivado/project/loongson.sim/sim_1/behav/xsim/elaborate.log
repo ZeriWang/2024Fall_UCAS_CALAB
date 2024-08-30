@@ -1,7 +1,7 @@
 Vivado Simulator 2019.2
 Copyright 1986-1999, 2001-2019 Xilinx, Inc. All Rights Reserved.
-Running: E:/Xilinx/Vivado/2019.2/bin/unwrapped/win64.o/xelab.exe -wto ac330ebddbf44da79b07d2338d565f0e --incr --debug typical --relax --mt 2 -L xil_defaultlib -L dist_mem_gen_v8_0_13 -L unisims_ver -L unimacro_ver -L secureip -L xpm --snapshot tb_top_behav xil_defaultlib.tb_top xil_defaultlib.glbl -log elaborate.log 
-Using 2 slave threads.
+Running: E:/Xilinx/Vivado/2019.2/bin/unwrapped/win64.o/xelab.exe -wto ac330ebddbf44da79b07d2338d565f0e --incr --debug typical --relax --mt 8 -L xil_defaultlib -L dist_mem_gen_v8_0_13 -L unisims_ver -L unimacro_ver -L secureip -L xpm --snapshot tb_top_behav xil_defaultlib.tb_top xil_defaultlib.glbl -log elaborate.log 
+Using 8 slave threads.
 Starting static elaboration
 Pass Through NonSizing Optimizer
 WARNING: [VRFC 10-3091] actual bit length 16 differs from formal bit length 15 for port 'a' [E:/Code/CAcode/2024Fall_UCAS_CALAB/prj1/mycpu_env/soc_verify/soc_dram/rtl/soc_lite_top.v:166]
