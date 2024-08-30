@@ -80,7 +80,7 @@ assign lui_result = alu_src2;
 assign sll_result = alu_src1 << alu_src2[4:0];   //rj << i5 // debug: 移位对象错误
 
 // SRL, SRA result
-assign sr64_result = {{32{op_sra & alu_src2[31]}}, alu_src1[31:0]} >> alu_src2[4:0]; //rj >> i5 // debug: 移位对象错误
+assign sr64_result = {{32{op_sra & alu_src1[31]}}, alu_src1[31:0]} >> alu_src2[4:0]; //rj >> i5 // debug: 移位对象错误
 
 assign sr_result   = sr64_result[31:0];  // debug: 位宽不匹配
 
