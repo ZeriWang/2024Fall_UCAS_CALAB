@@ -250,7 +250,7 @@ assign alu_src2 = src2_is_imm ? imm : rkd_value;
 
 alu u_alu(
     .alu_op     (alu_op    ),
-    .alu_src1   (alu_src2  ),
+    .alu_src1   (alu_src1  ), // debug: 实例化ALU模块时，alu_src1 和 alu_src2 都连接到了 alu_src2 信号， 将 alu_src1 信号连接到 alu_src1 信号
     .alu_src2   (alu_src2  ),
     .alu_result (alu_result)
     );
@@ -268,7 +268,7 @@ assign rf_wdata = final_result;
 
 // debug info generate
 assign debug_wb_pc       = pc;
-assign debug_wb_rf_wen   = {4{rf_we}};
+assign debug_wb_rf_we   = {4{rf_we}};  // debug: 生成debug信息时，应为debug_wb_rf_we
 assign debug_wb_rf_wnum  = dest;
 assign debug_wb_rf_wdata = final_result;
 
