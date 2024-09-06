@@ -27,15 +27,15 @@ module mycpu_top(
 reg         reset;
 always @(posedge clk) reset <= ~resetn;
 
-reg         valid;
-always @(posedge clk) begin
-    if (reset) begin
-        valid <= 1'b0;
-    end
-    else begin
-        valid <= 1'b1;
-    end
-end
+// reg         valid;
+// always @(posedge clk) begin
+//     if (reset) begin
+//         valid <= 1'b0;
+//     end
+//     else begin
+//         valid <= 1'b1;
+//     end
+// end
 
 wire [31:0] seq_pc;
 wire [31:0] nextpc;
@@ -120,6 +120,35 @@ wire [31:0] alu_result ;
 wire [31:0] mem_result;
 
 wire [31:0] final_result; // debug: final_result未声明
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// pipeline signals
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+reg  [ 4:0] pipe_valid;  // IF: 00000, ID: 00001, EX: 00010, MEM: 00011, WB: 00100
+
+always @(posedge clk) begin
+    if (reset) begin
+        pipe_valid <= 5'b0;
+    end
+    else if(pipe_valid == 5'b00000) begin
+        pipe_valid <= 5'b00001;
+    end
+    else if(pipe_valid == 5'b00001) begin
+        pipe_valid <= 5'b00010;
+    end
+    else if(pipe_valid == 5'b00010) begin
+        pipe_valid <= 5'b00011;
+    end
+    else if(pipe_valid == 5'b00011) begin
+        pipe_valid <= 5'b00100;
+    end
+    else if(pipe_valid == 5'b00100) begin
+        pipe_valid <= 5'b00000;
+    end
+end
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -365,7 +394,7 @@ assign br_taken = (   inst_beq_EX  &&  rj_eq_rd
                    || inst_jirl_EX
                    || inst_bl_EX
                    || inst_b_EX
-                  ) && valid;
+                  ) && pipe_valid[3];
 assign br_target = (inst_beq_EX || inst_bne_EX || inst_bl_EX || inst_b_EX) ? (pc_EX + br_offs_EX) :
                                                    /*inst_jirl*/ (rj_value_EX + jirl_offs_EX);
 
@@ -454,7 +483,7 @@ end
 
 assign final_result = res_from_mem_WB ? mem_result_WB : alu_result_WB;
 
-assign rf_we    = gr_we_WB && valid;
+assign rf_we    = gr_we_WB && pipe_valid[4];
 assign rf_waddr = dest_WB;
 assign rf_wdata = final_result;
 
