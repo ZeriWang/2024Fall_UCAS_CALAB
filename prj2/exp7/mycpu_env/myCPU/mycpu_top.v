@@ -309,7 +309,7 @@ assign rkd_value = rf_rdata2;
 
 
 reg  [31:0] pc_EX;
-reg  [31:0] alu_op_EX;
+reg  [11:0] alu_op_EX;
 // inst type
 reg  inst_add_w_EX;
 reg  inst_sub_w_EX;
