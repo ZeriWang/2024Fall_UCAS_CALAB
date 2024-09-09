@@ -128,27 +128,36 @@ wire [31:0] final_result; // debug: final_result未声明
 
 
 reg  [ 4:0] pipe_valid;  // IF: 00000, ID: 00001, EX: 00010, MEM: 00011, WB: 00100
+wire [ 4:0] pipe_allowin;
+wire [ 4:0] pipe_ready_go;
+wire [ 3:0] pipe_tonext_valid;
+wire [ 4:0] pipe_stay;
+wire [ 4:0] pipe_refresh;
+wire [ 4:0] pipe_leave;
+wire [ 4:0] pipe_enter;
 
+genvar i;
+
+assign pipe_allowin[ 3: 0] = ~pipe_valid[ 3: 0]
+                                       | pipe_ready_go[ 3 : 0] & pipe_allowin[ 4 : 1];
+assign pipe_allowin[ 4] = ~pipe_valid[ 4] | pipe_ready_go[ 4];
+                                       
+assign pipe_tonext_valid[ 3 : 0] = pipe_allowin[ 4 : 1] & pipe_ready_go[ 3 : 0];
+assign pipe_stay    = pipe_valid & ~{1'b1, pipe_tonext_valid};
+assign pipe_refresh = pipe_valid & {pipe_tonext_valid, 1'b1}; // NOTE: 1'b1 is for PC refresh
+assign pipe_leave   = pipe_valid & {1'b1, pipe_tonext_valid};
+assign pipe_enter   = {pipe_valid[3:0], 1'b1} & {pipe_tonext_valid, pipe_allowin[0]}; // NOTE: 1'b1 is for PC refresh
+
+// valid signal control in pipeline
 always @(posedge clk) begin
     if (reset) begin
-        pipe_valid <= 5'b0;
-    end
-    else if(pipe_valid == 5'b00000) begin
-        pipe_valid <= 5'b00001;
-    end
-    else if(pipe_valid == 5'b00001) begin
-        pipe_valid <= 5'b00010;
-    end
-    else if(pipe_valid == 5'b00010) begin
-        pipe_valid <= 5'b00011;
-    end
-    else if(pipe_valid == 5'b00011) begin
-        pipe_valid <= 5'b00100;
-    end
-    else if(pipe_valid == 5'b00100) begin
         pipe_valid <= 5'b00000;
     end
+    else begin
+        pipe_valid <= {pipe_tonext_valid, pipe_allowin[0]} | pipe_stay;
+    end
 end
+
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -175,6 +184,8 @@ assign inst_sram_we    = 4'b0;  // instruction memory strb
 assign inst_sram_addr  = nextpc;  // instruction memory address
 assign inst_sram_wdata = 32'b0;  // instruction memory write data
 assign inst            = inst_sram_rdata;  // instruction memory read data
+
+assign pipe_ready_go[0] = pipe_valid[0];
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -234,7 +245,7 @@ assign inst_b      = op_31_26_d[6'h14];
 assign inst_bl     = op_31_26_d[6'h15];
 assign inst_beq    = op_31_26_d[6'h16];
 assign inst_bne    = op_31_26_d[6'h17];
-assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
+assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst_ID[25];
 
 assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
                     | inst_jirl | inst_bl;
@@ -302,6 +313,8 @@ regfile u_regfile(
 assign rj_value  = rf_rdata1;
 assign rkd_value = rf_rdata2;
 
+ assign pipe_ready_go[1] = pipe_valid[1];
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ID stage to EX stage
@@ -311,26 +324,26 @@ assign rkd_value = rf_rdata2;
 reg  [31:0] pc_EX;
 reg  [11:0] alu_op_EX;
 // inst type
-reg  inst_add_w_EX;
-reg  inst_sub_w_EX;
-reg  inst_slt_EX;
-reg  inst_sltu_EX;
-reg  inst_nor_EX;
-reg  inst_and_EX;
-reg  inst_or_EX;
-reg  inst_xor_EX;
-reg  inst_slli_w_EX;
-reg  inst_srli_w_EX;
-reg  inst_srai_w_EX;
-reg  inst_addi_w_EX;
-reg  inst_ld_w_EX;
-reg  inst_st_w_EX;
+// reg  inst_add_w_EX;
+// reg  inst_sub_w_EX;
+// reg  inst_slt_EX;
+// reg  inst_sltu_EX;
+// reg  inst_nor_EX;
+// reg  inst_and_EX;
+// reg  inst_or_EX;
+// reg  inst_xor_EX;
+// reg  inst_slli_w_EX;
+// reg  inst_srli_w_EX;
+// reg  inst_srai_w_EX;
+// reg  inst_addi_w_EX;
+// reg  inst_ld_w_EX;
+// reg  inst_st_w_EX;
 reg  inst_jirl_EX;
 reg  inst_b_EX;
 reg  inst_bl_EX;
 reg  inst_beq_EX;
 reg  inst_bne_EX;
-reg  inst_lu12i_w_EX;
+// reg  inst_lu12i_w_EX;
 
 reg  [31:0] imm_EX;
 reg  [31:0] br_offs_EX;
@@ -349,26 +362,26 @@ reg  [31:0] rkd_value_EX;
 always @(posedge clk) begin
     pc_EX           <= pc_ID;
     alu_op_EX       <= alu_op;
-    inst_add_w_EX   <= inst_add_w;
-    inst_sub_w_EX   <= inst_sub_w;
-    inst_slt_EX     <= inst_slt;
-    inst_sltu_EX    <= inst_sltu;
-    inst_nor_EX     <= inst_nor;
-    inst_and_EX     <= inst_and;
-    inst_or_EX      <= inst_or;
-    inst_xor_EX     <= inst_xor;
-    inst_slli_w_EX  <= inst_slli_w;
-    inst_srli_w_EX  <= inst_srli_w;
-    inst_srai_w_EX  <= inst_srai_w;
-    inst_addi_w_EX  <= inst_addi_w;
-    inst_ld_w_EX    <= inst_ld_w;
-    inst_st_w_EX    <= inst_st_w;
+//    inst_add_w_EX   <= inst_add_w;
+//    inst_sub_w_EX   <= inst_sub_w;
+//    inst_slt_EX     <= inst_slt;
+//    inst_sltu_EX    <= inst_sltu;
+//    inst_nor_EX     <= inst_nor;
+//    inst_and_EX     <= inst_and;
+//    inst_or_EX      <= inst_or;
+//    inst_xor_EX     <= inst_xor;
+//    inst_slli_w_EX  <= inst_slli_w;
+//    inst_srli_w_EX  <= inst_srli_w;
+//    inst_srai_w_EX  <= inst_srai_w;
+//    inst_addi_w_EX  <= inst_addi_w;
+//    inst_ld_w_EX    <= inst_ld_w;
+//    inst_st_w_EX    <= inst_st_w;
     inst_jirl_EX    <= inst_jirl;
     inst_b_EX       <= inst_b;
     inst_bl_EX      <= inst_bl;
     inst_beq_EX     <= inst_beq;
     inst_bne_EX     <= inst_bne;
-    inst_lu12i_w_EX <= inst_lu12i_w;
+//    inst_lu12i_w_EX <= inst_lu12i_w;
     imm_EX          <= imm;
     br_offs_EX      <= br_offs;
     jirl_offs_EX    <= jirl_offs;
@@ -394,7 +407,7 @@ assign br_taken = (   inst_beq_EX  &&  rj_eq_rd
                    || inst_jirl_EX
                    || inst_bl_EX
                    || inst_b_EX
-                  ) && pipe_valid[3];
+                  ) && pipe_valid[2];
 assign br_target = (inst_beq_EX || inst_bne_EX || inst_bl_EX || inst_b_EX) ? (pc_EX + br_offs_EX) :
                                                    /*inst_jirl*/ (rj_value_EX + jirl_offs_EX);
 
@@ -409,9 +422,11 @@ alu u_alu(
     );
 
 assign data_sram_en    = 1'b1;
-assign data_sram_we    = {4{mem_we_EX}};
+assign data_sram_we    = {4{mem_we_EX && pipe_valid[2]}};
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = rkd_value_EX;
+
+assign pipe_ready_go[2] = pipe_valid[2];
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -441,6 +456,8 @@ end
 
 
 assign mem_result   = data_sram_rdata;
+
+assign pipe_ready_go[3] = pipe_valid[3];
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -486,6 +503,8 @@ assign final_result = res_from_mem_WB ? mem_result_WB : alu_result_WB;
 assign rf_we    = gr_we_WB && pipe_valid[4];
 assign rf_waddr = dest_WB;
 assign rf_wdata = final_result;
+
+assign pipe_ready_go[4] = pipe_valid[4];
 
 // debug info generate
 assign debug_wb_pc       = pc_WB;
