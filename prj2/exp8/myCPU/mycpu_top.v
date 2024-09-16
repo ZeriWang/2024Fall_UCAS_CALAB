@@ -402,14 +402,14 @@ assign rf_using2 = inst_beq
 assign rj_value  = df_alu_r1_EX  ? alu_result     :
                    df_alu_r1_MEM ? alu_result_MEM :
                    df_alu_r1_WB  ? alu_result_WB  :
-                   df_ld_r1_EX   ? mem_result     :
+                   df_ld_r1_MEM  ? mem_result     :
                    rf_rdata1
 ;
 
 assign rkd_value = df_alu_r2_EX  ? alu_result     :
                    df_alu_r2_MEM ? alu_result_MEM :
                    df_alu_r2_WB  ? alu_result_WB  :
-                   df_ld_r2_EX   ? mem_result     :
+                   df_ld_r2_MEM  ? mem_result     :
                    rf_rdata2
 ;
 
@@ -463,6 +463,7 @@ assign ID_stay   = df_ld_r1_EX   && rf_using1
                 || df_alu_r1_MEM && rf_using1
                 || df_ld_r2_EX   && rf_using2
                 || df_alu_r2_MEM && rf_using2
+;
 
 assign pipe_ready_go[1] = pipe_valid[1] && !ID_stay;
 
@@ -550,7 +551,7 @@ end
 // EX stage
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-reg first_EX // signal for the first instruction in the pipeline
+reg first_EX; // signal for the first instruction in the pipeline
 always @(posedge clk) begin
     if(reset) begin
         first_EX <= 1'b1;
@@ -646,8 +647,8 @@ reg  [ 4:0] dest_WB;
 always @(posedge clk) begin
     if (reset) begin
         pc_WB           <= 32'h0;
-        alu_result_WB   <= 32'h0;
-        mem_result_WB   <= 32'h0;
+//        alu_result_WB   <= 32'h0;
+//        mem_result_WB   <= 32'h0;
         res_from_mem_WB <= 1'b0;
         gr_we_WB        <= 1'b0;
         dest_WB         <= 5'h0;
