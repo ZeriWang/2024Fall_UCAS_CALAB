@@ -767,6 +767,27 @@ mul u_mul(
 assign div_src1 = rj_value_EX;
 assign div_src2 = rkd_value_EX;
 
+reg div_exciting;
+always @(posedge clk) begin
+    if (reset) begin
+        div_exciting <= 1'b0;
+    end
+    else if(s_divisor_ready && s_dividend_ready && (inst_div_w_EX || inst_mod_w_EX)) begin
+        div_exciting <= 1'b1;
+    end
+    else if(u_divisor_ready && u_dividend_ready && (inst_div_wu_EX || inst_mod_wu_EX)) begin
+        div_exciting <= 1'b1;
+    end
+    else if(s_div_out_valid || u_div_out_valid) begin
+        div_exciting <= 1'b0;
+    end
+end
+
+assign s_divisor_valid  = !div_exciting;
+assign u_divisor_valid  = !div_exciting;
+assign s_dividend_valid = !div_exciting;
+assign u_dividend_valid = !div_exciting;
+
 // signed division
 
 div_signed u_div_signed(
@@ -841,7 +862,7 @@ always @(posedge clk) begin
 // exp10: mul
     mul_result_MEM   <= mul_result;
     mul_inst_MEM     <= mul_inst_EX;
-    div_result_MEM   <= div_inst_EX;
+    div_result_MEM   <= div_result;
     div_inst_MEM     <= div_inst_EX;
 end
 
