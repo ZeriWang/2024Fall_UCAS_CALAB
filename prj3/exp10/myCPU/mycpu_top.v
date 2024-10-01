@@ -156,6 +156,7 @@ wire [31:0] rf_wdata;
 wire [31:0] alu_src1   ;
 wire [31:0] alu_src2   ;
 wire [31:0] alu_result ;
+wire [31:0] alu_result_original;
 
 // exp10: mul & div
 wire [31:0] mul_src1   ;
@@ -414,7 +415,7 @@ assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};
 
 assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w;
 
-assign src1_is_pc    = inst_jirl | inst_bl;
+assign src1_is_pc    = inst_jirl | inst_bl | inst_pcaddu12i;
 
 assign src2_is_imm   = inst_slli_w    | // shift instructions
                        inst_srli_w    |
@@ -514,9 +515,6 @@ assign rj_value  = df_alu_r1_EX  ? alu_result     :
                    df_mul_r1_EX  ? mul_result     :
                    df_mul_r1_MEM ? mul_result_MEM :
                    df_mul_r1_WB  ? mul_result_WB  :
-                   df_div_r1_EX  ? div_result     :
-                   df_div_r1_MEM ? div_result_MEM :
-                   df_div_r1_WB  ? div_result_WB  :
                    df_ld_r1_MEM  ? mem_result     :
                    rf_rdata1
 ;
@@ -527,8 +525,6 @@ assign rkd_value = df_alu_r2_EX  ? alu_result     :
                    df_mul_r2_EX  ? mul_result     :
                    df_mul_r2_MEM ? mul_result_MEM :
                    df_mul_r2_WB  ? mul_result_WB  :
-                   df_div_r2_EX  ? div_result     :
-                   df_div_r2_MEM ? div_result_MEM :
                    df_alu_r2_WB  ? alu_result_WB  :
                    df_ld_r2_MEM  ? mem_result     :
                    rf_rdata2
@@ -570,31 +566,19 @@ wire df_mul_r1_WB;
 wire df_mul_r2_EX;
 wire df_mul_r2_MEM;
 wire df_mul_r2_WB;
-wire df_div_r1_EX;
-wire df_div_r1_MEM;
-wire df_div_r1_WB;
-wire df_div_r2_EX;
-wire df_div_r2_MEM;
-wire df_div_r2_WB;
 
-assign df_alu_r1_EX  = rd_eq_r1_EX  && gr_we_EX  && !inst_ld_w_EX  && !mul_inst_EX  && !div_inst_EX;
-assign df_alu_r1_MEM = rd_eq_r1_MEM && gr_we_MEM && !inst_ld_w_MEM && !mul_inst_MEM && !div_inst_MEM;
-assign df_alu_r1_WB  = rd_eq_r1_WB  && gr_we_WB  && !inst_ld_w_WB  && !mul_inst_WB  && !div_inst_WB;
-assign df_alu_r2_EX  = rd_eq_r2_EX  && gr_we_EX  && !inst_ld_w_EX  && !mul_inst_EX  && !div_inst_EX;
-assign df_alu_r2_MEM = rd_eq_r2_MEM && gr_we_MEM && !inst_ld_w_MEM && !mul_inst_MEM && !div_inst_MEM;
-assign df_alu_r2_WB  = rd_eq_r2_WB  && gr_we_WB  && !inst_ld_w_WB  && !mul_inst_WB  && !div_inst_WB;
-assign df_mul_r1_EX  = rd_eq_r1_EX  && gr_we_EX  && !inst_ld_w_EX  &&  mul_inst_EX  && !div_inst_EX;
-assign df_mul_r1_MEM = rd_eq_r1_MEM && gr_we_MEM && !inst_ld_w_MEM &&  mul_inst_MEM && !div_inst_MEM;
-assign df_mul_r1_WB  = rd_eq_r1_WB  && gr_we_WB  && !inst_ld_w_WB  &&  mul_inst_WB  && !div_inst_WB;
-assign df_mul_r2_EX  = rd_eq_r2_EX  && gr_we_EX  && !inst_ld_w_EX  &&  mul_inst_EX  && !div_inst_EX;
-assign df_mul_r2_MEM = rd_eq_r2_MEM && gr_we_MEM && !inst_ld_w_MEM &&  mul_inst_MEM && !div_inst_MEM;
-assign df_mul_r2_WB  = rd_eq_r2_WB  && gr_we_WB  && !inst_ld_w_WB  &&  mul_inst_WB  && !div_inst_WB;
-assign df_div_r1_EX  = rd_eq_r1_EX  && gr_we_EX  && !inst_ld_w_EX  &&  div_inst_EX;
-assign df_div_r1_MEM = rd_eq_r1_MEM && gr_we_MEM && !inst_ld_w_MEM &&  div_inst_MEM;
-assign df_div_r1_WB  = rd_eq_r1_WB  && gr_we_WB  && !inst_ld_w_WB  &&  div_inst_WB;
-assign df_div_r2_EX  = rd_eq_r2_EX  && gr_we_EX  && !inst_ld_w_EX  &&  div_inst_EX;
-assign df_div_r2_MEM = rd_eq_r2_MEM && gr_we_MEM && !inst_ld_w_MEM &&  div_inst_MEM;
-assign df_div_r2_WB  = rd_eq_r2_WB  && gr_we_WB  && !inst_ld_w_WB  &&  div_inst_WB;
+assign df_alu_r1_EX  = rd_eq_r1_EX  && gr_we_EX  && !inst_ld_w_EX  && !mul_inst_EX  ;
+assign df_alu_r1_MEM = rd_eq_r1_MEM && gr_we_MEM && !inst_ld_w_MEM && !mul_inst_MEM ;
+assign df_alu_r1_WB  = rd_eq_r1_WB  && gr_we_WB  && !inst_ld_w_WB  && !mul_inst_WB  ;
+assign df_alu_r2_EX  = rd_eq_r2_EX  && gr_we_EX  && !inst_ld_w_EX  && !mul_inst_EX  ;
+assign df_alu_r2_MEM = rd_eq_r2_MEM && gr_we_MEM && !inst_ld_w_MEM && !mul_inst_MEM ;
+assign df_alu_r2_WB  = rd_eq_r2_WB  && gr_we_WB  && !inst_ld_w_WB  && !mul_inst_WB  ;
+assign df_mul_r1_EX  = rd_eq_r1_EX  && gr_we_EX  && !inst_ld_w_EX  &&  mul_inst_EX  ;
+assign df_mul_r1_MEM = rd_eq_r1_MEM && gr_we_MEM && !inst_ld_w_MEM &&  mul_inst_MEM ;
+assign df_mul_r1_WB  = rd_eq_r1_WB  && gr_we_WB  && !inst_ld_w_WB  &&  mul_inst_WB  ;
+assign df_mul_r2_EX  = rd_eq_r2_EX  && gr_we_EX  && !inst_ld_w_EX  &&  mul_inst_EX  ;
+assign df_mul_r2_MEM = rd_eq_r2_MEM && gr_we_MEM && !inst_ld_w_MEM &&  mul_inst_MEM ;
+assign df_mul_r2_WB  = rd_eq_r2_WB  && gr_we_WB  && !inst_ld_w_WB  &&  mul_inst_WB  ;
 assign df_ld_r1_EX   = rd_eq_r1_EX  && inst_ld_w_EX;
 assign df_ld_r1_MEM  = rd_eq_r1_MEM && inst_ld_w_MEM;
 assign df_ld_r1_WB   = rd_eq_r1_WB  && inst_ld_w_WB;
@@ -607,11 +591,9 @@ wire ID_stay;
 assign ID_stay   = df_ld_r1_EX   && rf_using1
                 || df_alu_r1_MEM && rf_using1
                 || df_mul_r1_MEM && rf_using1
-                || df_div_r1_MEM && rf_using1
                 || df_ld_r2_EX   && rf_using2
                 || df_alu_r2_MEM && rf_using2
                 || df_mul_r2_MEM && rf_using2
-                || df_div_r2_MEM && rf_using2
 ;
 
 assign pipe_ready_go[1] = pipe_valid[1] && !ID_stay;
@@ -670,8 +652,9 @@ reg  [31:0] rj_value_EX;
 reg  [31:0] rkd_value_EX;
 
 always @(posedge clk) begin
-    pc_EX           <= pc_ID;
-    alu_op_EX       <= alu_op;
+    if(pipe_tonext_valid[1]) begin
+        pc_EX           <= pc_ID;
+        alu_op_EX       <= alu_op;
 //    inst_add_w_EX   <= inst_add_w;
 //    inst_sub_w_EX   <= inst_sub_w;
 //    inst_slt_EX     <= inst_slt;
@@ -684,34 +667,35 @@ always @(posedge clk) begin
 //    inst_srli_w_EX  <= inst_srli_w;
 //    inst_srai_w_EX  <= inst_srai_w;
 //    inst_addi_w_EX  <= inst_addi_w;
-    inst_ld_w_EX    <= inst_ld_w;
-    inst_st_w_EX    <= inst_st_w;
-    inst_jirl_EX    <= inst_jirl;
-    inst_b_EX       <= inst_b;
-    inst_bl_EX      <= inst_bl;
-    inst_beq_EX     <= inst_beq;
-    inst_bne_EX     <= inst_bne;
-//    inst_lu12i_w_EX <= inst_lu12i_w;
-    imm_EX          <= imm;
-    br_offs_EX      <= br_offs;
-    jirl_offs_EX    <= jirl_offs;
-    src1_is_pc_EX   <= src1_is_pc;
-    src2_is_imm_EX  <= src2_is_imm;
-    res_from_mem_EX <= res_from_mem;
-    gr_we_EX        <= gr_we;
-    mem_we_EX       <= mem_we;
-    dest_EX         <= dest;
-    rj_value_EX     <= rj_value;
-    rkd_value_EX    <= rkd_value;
+        inst_ld_w_EX    <= inst_ld_w;
+        inst_st_w_EX    <= inst_st_w;
+        inst_jirl_EX    <= inst_jirl;
+        inst_b_EX       <= inst_b;
+        inst_bl_EX      <= inst_bl;
+        inst_beq_EX     <= inst_beq;
+        inst_bne_EX     <= inst_bne;
+//      inst_lu12i_w_EX <= inst_lu12i_w;
+        imm_EX          <= imm;
+        br_offs_EX      <= br_offs;
+        jirl_offs_EX    <= jirl_offs;
+        src1_is_pc_EX   <= src1_is_pc;
+        src2_is_imm_EX  <= src2_is_imm;
+        res_from_mem_EX <= res_from_mem;
+        gr_we_EX        <= gr_we;
+        mem_we_EX       <= mem_we;
+        dest_EX         <= dest;
+        rj_value_EX     <= rj_value;
+        rkd_value_EX    <= rkd_value;
 // exp10: mul & div
-    mul_inst_EX     <= mul_inst;
-    mul_op_EX       <= mul_op;
-    div_inst_EX     <= div_inst;
-    div_op_EX       <= div_op;
-    inst_div_w_EX   <= inst_div_w;
-    inst_mod_w_EX   <= inst_mod_w;
-    inst_div_wu_EX  <= inst_div_wu;
-    inst_mod_wu_EX  <= inst_mod_wu;
+        mul_inst_EX     <= mul_inst;
+        mul_op_EX       <= mul_op;
+        div_inst_EX     <= div_inst;
+        div_op_EX       <= div_op;
+        inst_div_w_EX   <= inst_div_w;
+        inst_mod_w_EX   <= inst_mod_w;
+        inst_div_wu_EX  <= inst_div_wu;
+        inst_mod_wu_EX  <= inst_mod_wu;
+    end
 end
 
 
@@ -749,20 +733,46 @@ alu u_alu(
     .alu_op     (alu_op_EX ),
     .alu_src1   (alu_src1  ), // debug: 实例化ALU模块时，alu_src1 和 alu_src2 都连接到了 alu_src2 信号， 将 alu_src1 信号连接到 alu_src1 信号
     .alu_src2   (alu_src2  ),
-    .alu_result (alu_result)
+    .alu_result (alu_result_original)
     );
 
 // exp10: mul & div
 assign mul_src1 = rj_value_EX;
 assign mul_src2 = rkd_value_EX;
 
-mul u_mul(
+multiplier u_multiplier(
     .mul_op     (mul_op_EX ),
     .mul_src1   (mul_src1),
     .mul_src2   (mul_src2),
     .mul_result (mul_result)
     );
 
+
+reg s_div_in_EX;
+always @(posedge clk) begin
+    if(reset) begin
+        s_div_in_EX <= 1'b0;
+    end
+    else if((inst_div_w || inst_mod_w) && pipe_tonext_valid[1]) begin
+        s_div_in_EX <= 1'b1;
+    end
+    else if(s_div_out_valid) begin
+        s_div_in_EX <= 1'b0;
+    end
+end
+
+reg u_div_in_EX;
+always @(posedge clk) begin
+    if(reset) begin
+        u_div_in_EX <= 1'b0;
+    end
+    else if((inst_div_wu || inst_mod_wu) && pipe_tonext_valid[1]) begin
+        u_div_in_EX <= 1'b1;
+    end
+    else if(u_div_out_valid) begin
+        u_div_in_EX <= 1'b0;
+    end
+end
 
 assign div_src1 = rj_value_EX;
 assign div_src2 = rkd_value_EX;
@@ -772,21 +782,24 @@ always @(posedge clk) begin
     if (reset) begin
         div_exciting <= 1'b0;
     end
-    else if(s_divisor_ready && s_dividend_ready && (inst_div_w_EX || inst_mod_w_EX)) begin
+    else if(div_inst_EX) begin
         div_exciting <= 1'b1;
     end
+    else if(s_divisor_ready && s_dividend_ready && (inst_div_w_EX || inst_mod_w_EX)) begin
+        div_exciting <= 1'b0;
+    end
     else if(u_divisor_ready && u_dividend_ready && (inst_div_wu_EX || inst_mod_wu_EX)) begin
-        div_exciting <= 1'b1;
+        div_exciting <= 1'b0;
     end
     else if(s_div_out_valid || u_div_out_valid) begin
         div_exciting <= 1'b0;
     end
 end
 
-assign s_divisor_valid  = !div_exciting;
-assign u_divisor_valid  = !div_exciting;
-assign s_dividend_valid = !div_exciting;
-assign u_dividend_valid = !div_exciting;
+assign s_divisor_valid  = div_exciting;
+assign u_divisor_valid  = div_exciting;
+assign s_dividend_valid = div_exciting;
+assign u_dividend_valid = div_exciting;
 
 // signed division
 
@@ -799,7 +812,7 @@ div_signed u_div_signed(
     .s_axis_dividend_tready(s_dividend_ready),
     .s_axis_dividend_tvalid(s_dividend_valid),
     .m_axis_dout_tdata     (s_div_out       ),
-    .m_axis_dout_tvalid    (s_div_out_valid ),
+    .m_axis_dout_tvalid    (s_div_out_valid )
     );
 
 // unsigned division
@@ -813,21 +826,23 @@ div_unsigned u_div_unsigned(
     .s_axis_dividend_tready(u_dividend_ready),
     .s_axis_dividend_tvalid(u_dividend_valid),
     .m_axis_dout_tdata     (u_div_out       ),
-    .m_axis_dout_tvalid    (u_div_out_valid ),
+    .m_axis_dout_tvalid    (u_div_out_valid )
     );
 
 assign div_result = inst_div_w_EX  ? s_div_out[63:32] :
                     inst_mod_w_EX  ? s_div_out[31: 0] :
                     inst_div_wu_EX ? u_div_out[63:32] :
-                    inst_mod_wu_EX ? u_div_out[31: 0]
+                                     u_div_out[31: 0]
 ;
+
+assign alu_result = (s_div_in_EX || u_div_in_EX) ? div_result : alu_result_original;
 
 assign data_sram_en    = 1'b1;
 assign data_sram_we    = {4{mem_we_EX && pipe_valid[2]}};
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = rkd_value_EX;
 
-assign pipe_ready_go[2] = pipe_valid[2] && (div_inst_EX && (s_div_out_valid || u_div_out_valid));
+assign pipe_ready_go[2] = pipe_valid[2] && (!(s_div_in_EX || u_div_in_EX) || ((s_div_in_EX && s_div_out_valid) || (u_div_in_EX && u_div_out_valid)));
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -845,25 +860,23 @@ reg         res_from_mem_MEM;
 reg         gr_we_MEM;
 reg  [ 4:0] dest_MEM;
 
-// exp10: mul & div
+// exp10: mul
 reg  [31:0] mul_result_MEM;
 reg         mul_inst_MEM;
-reg  [31:0] div_result_MEM;
-reg         div_inst_MEM;
 
 always @(posedge clk) begin
-    pc_MEM           <= pc_EX;
-    alu_result_MEM   <= alu_result;
-    res_from_mem_MEM <= res_from_mem_EX;
-    gr_we_MEM        <= gr_we_EX;
-    dest_MEM         <= dest_EX;  
-    inst_ld_w_MEM    <= inst_ld_w_EX;
-    inst_st_w_MEM    <= inst_st_w_EX;  
+    if(pipe_tonext_valid[2]) begin
+        pc_MEM           <= pc_EX;
+        alu_result_MEM   <= alu_result;
+        res_from_mem_MEM <= res_from_mem_EX;
+        gr_we_MEM        <= gr_we_EX;
+        dest_MEM         <= dest_EX;  
+        inst_ld_w_MEM    <= inst_ld_w_EX;
+        inst_st_w_MEM    <= inst_st_w_EX;  
 // exp10: mul
-    mul_result_MEM   <= mul_result;
-    mul_inst_MEM     <= mul_inst_EX;
-    div_result_MEM   <= div_result;
-    div_inst_MEM     <= div_inst_EX;
+        mul_result_MEM   <= mul_result;
+        mul_inst_MEM     <= mul_inst_EX;
+    end
 end
 
 
@@ -896,8 +909,6 @@ reg  [ 4:0] dest_WB;
 // exp10: mul
 reg  [31:0] mul_result_WB;
 reg         mul_inst_WB;
-reg  [31:0] div_result_WB;
-reg         div_inst_WB;
 
 always @(posedge clk) begin
     if (reset) begin
@@ -908,7 +919,7 @@ always @(posedge clk) begin
         gr_we_WB        <= 1'b0;
         dest_WB         <= 5'h0;
     end
-    else begin
+    else if(pipe_tonext_valid[3]) begin
         pc_WB           <= pc_MEM;
         alu_result_WB   <= alu_result_MEM;
         mem_result_WB   <= mem_result;
@@ -920,8 +931,6 @@ always @(posedge clk) begin
 // exp10: mul
         mul_result_WB   <= mul_result_MEM;
         mul_inst_WB     <= mul_inst_MEM;
-        div_result_WB   <= div_result_MEM;
-        div_inst_WB     <= div_inst_MEM;
     end
 end
 
@@ -930,10 +939,9 @@ end
 // WB stage
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// exp10: mul & div
+// exp10: mul
 assign final_result = res_from_mem_WB ? mem_result_WB :
                       mul_inst_WB     ? mul_result_WB :
-                      div_inst_WB     ? div_result_WB :
                       alu_result_WB;
 
 assign rf_we    = gr_we_WB && pipe_valid[4];
