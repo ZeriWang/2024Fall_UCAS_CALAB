@@ -777,29 +777,36 @@ end
 assign div_src1 = rj_value_EX;
 assign div_src2 = rkd_value_EX;
 
-reg div_exciting;
+reg div_executing;
+reg div_valid;
 always @(posedge clk) begin
     if (reset) begin
-        div_exciting <= 1'b0;
+        div_executing <= 1'b0;
     end
-    else if(div_inst_EX) begin
-        div_exciting <= 1'b1;
+    else if(div_inst_EX && ((s_div_in_EX && s_divisor_ready && s_dividend_ready) || (u_div_in_EX && u_divisor_ready && u_dividend_ready))) begin
+        div_executing <= 1'b1;
     end
-    else if(s_divisor_ready && s_dividend_ready && (inst_div_w_EX || inst_mod_w_EX)) begin
-        div_exciting <= 1'b0;
-    end
-    else if(u_divisor_ready && u_dividend_ready && (inst_div_wu_EX || inst_mod_wu_EX)) begin
-        div_exciting <= 1'b0;
-    end
-    else if(s_div_out_valid || u_div_out_valid) begin
-        div_exciting <= 1'b0;
+    else if((s_div_in_EX && s_div_out_valid) || (u_div_in_EX && u_div_out_valid)) begin
+        div_executing <= 1'b0;
     end
 end
 
-assign s_divisor_valid  = div_exciting;
-assign u_divisor_valid  = div_exciting;
-assign s_dividend_valid = div_exciting;
-assign u_dividend_valid = div_exciting;
+always @(posedge clk) begin
+    if(reset) begin
+        div_valid <= 1'b0;
+    end
+    else if(div_inst_EX && !div_executing) begin
+        div_valid <= 1'b1;
+    end
+    else if(div_inst_EX && ((s_div_in_EX && s_divisor_ready && s_dividend_ready) || (u_div_in_EX && u_divisor_ready && u_dividend_ready))) begin
+        div_valid <= 1'b0;
+    end
+end
+
+assign s_divisor_valid  = div_inst_EX && div_valid;
+assign u_divisor_valid  = div_inst_EX && div_valid;
+assign s_dividend_valid = div_inst_EX && div_valid;
+assign u_dividend_valid = div_inst_EX && div_valid;
 
 // signed division
 
@@ -829,10 +836,10 @@ div_unsigned u_div_unsigned(
     .m_axis_dout_tvalid    (u_div_out_valid )
     );
 
-assign div_result = inst_div_w_EX  ? s_div_out[63:32] :
-                    inst_mod_w_EX  ? s_div_out[31: 0] :
-                    inst_div_wu_EX ? u_div_out[63:32] :
-                                     u_div_out[31: 0]
+assign div_result = {32{inst_div_w_EX}}  & s_div_out[63:32] | 
+                    {32{inst_mod_w_EX}}  & s_div_out[31: 0] |
+                    {32{inst_div_wu_EX}} & u_div_out[63:32] | 
+                    {32{inst_mod_wu_EX}} & u_div_out[31: 0]
 ;
 
 assign alu_result = (s_div_in_EX || u_div_in_EX) ? div_result : alu_result_original;
@@ -842,7 +849,7 @@ assign data_sram_we    = {4{mem_we_EX && pipe_valid[2]}};
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = rkd_value_EX;
 
-assign pipe_ready_go[2] = pipe_valid[2] && (!(s_div_in_EX || u_div_in_EX) || ((s_div_in_EX && s_div_out_valid) || (u_div_in_EX && u_div_out_valid)));
+assign pipe_ready_go[2] = pipe_valid[2] && ((!(s_div_in_EX || u_div_in_EX)) || (s_div_in_EX && s_div_out_valid) || (u_div_in_EX && u_div_out_valid));
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -957,3 +964,10 @@ assign debug_wb_rf_wnum  = dest_WB;
 assign debug_wb_rf_wdata = final_result;
 
 endmodule
+
+
+// exp10 bug: 
+// 1. 流水线逻辑出现问题，EX和MEM阶段流水线信号传输条件缺失
+// 2. 除法器模块实例化错误
+// 3. 除法器握手信号逻辑错误
+
