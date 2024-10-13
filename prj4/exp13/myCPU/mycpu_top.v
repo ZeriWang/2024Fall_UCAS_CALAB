@@ -1439,7 +1439,6 @@ always @(posedge clk) begin
 //        mem_result_WB   <= 32'h0;
         res_from_mem_WB <= 1'b0;
         res_from_csr_WB <= 1'b0;
-        gr_we_WB        <= 1'b0;
         dest_WB         <= 5'h0;
         csr_dest_WB     <= 14'h0;
     end
@@ -1481,7 +1480,10 @@ always @(posedge clk) begin
 end
 
 always @(posedge clk) begin
-    if (flush) begin
+    if (reset) begin
+        gr_we_WB        <= 1'b0;
+    end
+    else if (flush) begin
         gr_we_WB        <= 1'b0;
         csr_we_WB          <= 1'b0;
     end
