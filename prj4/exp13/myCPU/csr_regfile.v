@@ -132,10 +132,10 @@ always @(posedge clk) begin
                     | ~csr_wmask[`CSR_CRMD_IE] & csr_crmd_ie;
 end
 
-assign csr_crmd_da = 1'b1;
-assign csr_crmd_pg = 1'b0;
-assign csr_crmd_datf = 2'b00;
-assign csr_crmd_datm = 2'b00;
+assign csr_crmd_da = 1'b1; // temporary value, maybe changed in next prj
+assign csr_crmd_pg = 1'b0; // temporary value, maybe changed in next prj
+assign csr_crmd_datf = 2'b00; // temporary value, maybe changed in next prj
+assign csr_crmd_datm = 2'b00; // temporary value, maybe changed in next prj
 
 // PRMD
 always @(posedge clk) begin

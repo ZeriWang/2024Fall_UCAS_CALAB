@@ -37,7 +37,7 @@ always @(posedge clk) reset <= ~resetn;
 //     end
 // end
 
-reg [63:0] cnt;
+reg [63:0] cnt; // New cnt to read when rdcntvl.w/rdcntvh.w
 always @(posedge clk) begin
     if (reset) begin
         cnt <= 64'h0;
@@ -47,7 +47,7 @@ always @(posedge clk) begin
     end
 end
 
-reg  flush_rst;
+reg  flush_rst; // Flush reset signal, to ensure the flush signal only last one cycle
 always @(posedge clk) begin
     if (reset) begin
         flush_rst <= 1'b1;
@@ -59,7 +59,7 @@ always @(posedge clk) begin
         flush_rst <= 1'b1;
     end
 end
-wire flush = (ex_WB || has_int_WB) && flush_rst;
+wire flush = (ex_WB || has_int_WB) && flush_rst; // Flush signal to flush the pipeline when exception or interrupt. The way to flush is to set the gr_we/csr_we/mem_we to 0 in all stages.
 
 wire [31:0] seq_pc;
 wire [31:0] nextpc;
@@ -228,7 +228,7 @@ wire [63:0] u_div_out  ;
 
 wire [31:0] mem_result;
 
-wire [31:0] cnt_result;
+wire [31:0] cnt_result; // Result from cnt
 
 wire [31:0] final_result; // debug: final_result not declared
 
@@ -380,8 +380,8 @@ assign pipe_ready_go[0] = pipe_valid[0];
 reg  [31:0] inst_ID;
 reg  [31:0] pc_ID;
 reg         ex_ID;
-reg  [ 5:0] csr_ecode_ID;
-wire [ 5:0] csr_ecode_ID_m;
+reg  [ 5:0] csr_ecode_ID; // This signal is used to get the csr_ecode passed to ID stage
+wire [ 5:0] csr_ecode_ID_m; // This signal is used to get the csr_ecode in ID stage
 
 always @(posedge clk) begin
     if (pipe_tonext_valid[0]) begin
@@ -423,9 +423,9 @@ assign ID_stay3  = df_rdcntid_r1_EX && rf_using1
                 || df_rdcntid_r1_WB && rf_using1
                 || df_rdcntid_r2_EX && rf_using2
                 || df_rdcntid_r2_MEM && rf_using2
-                || df_rdcntid_r2_WB && rf_using2;
+                || df_rdcntid_r2_WB && rf_using2; // Pipeline should stay 3 cycles when rdcntid.w cause the instruction can get the value from the TID csr only in WB stage
 
-reg [1:0] stay_counter;
+reg [1:0] stay_counter; // counter for the number of cycles to stay, used for ID_stay3
 always @(posedge clk) begin
     if (reset) begin
         stay_counter <= 2'b00;
@@ -705,7 +705,7 @@ assign dst_is_r1     = inst_bl;
 assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_ertn & ~ex_ID_m; // debug: gr_we wrong // exp11: add branch instructions & load/store instructions
 assign mem_we        = inst_st_w | inst_st_b | inst_st_h; // exp11: add store instructions
 assign dest          = dst_is_r1 ? 5'd1 : 
-                       inst_rdcntid_w ? rj :
+                       inst_rdcntid_w ? rj : // dest of rdcntid.w is rj
                                         rd;
 assign csr_dest      = inst_syscall ? 14'h6 : imm[13:0];
 assign csr_we    = inst_csrwr || inst_csrxchg;
@@ -842,7 +842,7 @@ assign inst_not_exist = ~inst_add_w & ~inst_sub_w & ~inst_slt & ~inst_sltu
                       & ~inst_div_w & ~inst_mod_w & ~inst_div_wu & ~inst_mod_wu 
                       & ~inst_csrrd & ~inst_csrwr & ~inst_csrxchg 
                       & ~inst_ertn & ~inst_syscall & ~inst_break
-                      & ~inst_rdcntid_w & ~inst_rdcntvl_w & ~inst_rdcntvh_w;
+                      & ~inst_rdcntid_w & ~inst_rdcntvl_w & ~inst_rdcntvh_w; // INE exception
 
 assign ex_ID_m = ex_ID | inst_syscall | inst_break | inst_not_exist;
 
@@ -870,7 +870,7 @@ csr_regfile u_csr_regfile(
     .wb_ecode  (csr_ecode_WB),
     .wb_esubcode  (9'h0)
     );
-assign csr_we_real = csr_we_WB;
+assign csr_we_real = csr_we_WB; // Really need to write CSR
 assign csr_raddr = inst_ertn ? 14'b110 :
                    inst_rdcntid_w_WB ? 14'h40 :
                                        imm[13:0];
@@ -1092,7 +1092,7 @@ assign br_taken = (   inst_beq_EX  &&  rj_eq_rd
                    || inst_ertn_EX // exp12: add csr instruction
                   ) && pipe_valid[2] && first_EX
                    || (ex_WB || has_int_WB) && pipe_valid[4];
-assign br_target =  (ex_WB || has_int_WB) ? ex_entry :
+assign br_target =  (ex_WB || has_int_WB) ? ex_entry : // when there is an exception, jump to the ex_entry
                     (inst_beq_EX || inst_bne_EX || inst_bl_EX || inst_b_EX || inst_blt_EX || inst_bge_EX || inst_bltu_EX || inst_bgeu_EX) ? (pc_EX + br_offs_EX) :
                     (inst_ertn_EX) ? csr_value_EX : 
                     /*inst_jirl*/ (rj_value_EX + jirl_offs_EX); // exp11: add branch instructions
@@ -1229,7 +1229,7 @@ assign data_sram_addr  = alu_result;
 assign data_sram_we    = (inst_st_b_EX ? (4'h1 << data_sram_addr[1:0]) :
                           inst_st_h_EX ? (4'h3 << data_sram_addr[1:0]) :
                                           4'hf) 
-                        & {4{mem_we_EX && pipe_valid[2] && ~has_int && ~ex_EX_m && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB}};
+                        & {4{mem_we_EX && pipe_valid[2] && ~has_int && ~ex_EX_m && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB}}; // If has exception in the pipeline, do not write to data_sram
 
 assign data_sram_wdata = inst_st_b_EX ? {4{rkd_value_EX[ 7:0]}} :
                          inst_st_h_EX ? {2{rkd_value_EX[15:0]}} :
@@ -1516,6 +1516,7 @@ assign csr_wmask = {32{inst_csrwr_WB}} | {32{inst_csrxchg_WB}} & rj_value_WB;
 assign csr_wdata = rkd_value_WB;
 assign csr_wbex  = (ex_WB || has_int_WB) && csr_wbex_rst;
 
+// Reset the csr_wbex signal to ensure csr_wbex only lasts for one cycle
 always @(posedge clk) begin
     if (reset) begin
         csr_wbex_rst <= 1'b1;
@@ -1546,3 +1547,8 @@ endmodule
 
 // exp11 bug:
 // 1. a datapath bug: when the instruction conflicts with a load instruction in WB stage, the register value should be mem_result_WB
+
+
+// exp13 bug:
+// 1. signal last time bug: Maybe you can be confused by the signal csr_wbex_rst/flush_rst, these signals are used to reset the signal csr_wbex/flush. In simulation, the signal csr_wbex/flush signals can last for more than one cycle, then cause some CSR/registers to be written more than once. Therefore, we cannot get the correct result. So we need to ensure that the signal csr_wbex/flush only last for one cycle to avoid this problem.
+// 2. datapath bug: Since instruction rdcntid.w get its value in the WB stage, if the instruction conflicts with other instructions in the pipeline, disastrous consequences will occur. Therefore, we need to block the pipeline when the instruction rdcntid.w is conflict with other instructions for three cycles to ensure that the instructions after rdcntid.w can get the correct value from the register file.
