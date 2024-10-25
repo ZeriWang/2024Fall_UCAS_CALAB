@@ -379,7 +379,7 @@ always @(posedge clk) begin
         inst_IF_reg_valid <= 1'b0;
 end
 
-assign inst = first_IF || pipe_ready_go[0]? inst_sram_rdata : inst_IF_reg;
+assign inst = first_IF || inst_sram_data_ok ? inst_sram_rdata : inst_IF_reg;
 
 // pre-IF stage
 wire pipe_ready_go_preIF;
