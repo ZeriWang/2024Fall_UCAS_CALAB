@@ -428,7 +428,7 @@ assign seq_pc       = pc + 3'h4;
 assign nextpc       = br_taken_valid ? br_target_reg : 
                                                         seq_pc;
 
-assign inst_sram_req    = pipe_allowin[0];  // instruction memory enable
+assign inst_sram_req    = pipe_allowin[0] && !((ex_WB || has_int_WB) && br_taken);  // instruction memory enable
 assign inst_sram_wr     = 1'b0;  // instruction memory write enable
 assign inst_sram_wstrb    = 4'b0;  // instruction memory strb
 assign inst_sram_size    = 2'b10;  // instruction memory size
