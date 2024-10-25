@@ -2,17 +2,25 @@ module mycpu_top(
     input  wire        clk,
     input  wire        resetn,
     // inst sram interface
-    output wire        inst_sram_en,   // chip select signal of instruction sram
-    output wire [ 3:0] inst_sram_we,
+    output wire        inst_sram_req,   // chip select signal of instruction sram
+    output wire        inst_sram_wr,
+    output wire [ 1:0] inst_sram_size,
+    output wire [ 3:0] inst_sram_wstrb,
     output wire [31:0] inst_sram_addr,
     output wire [31:0] inst_sram_wdata,
     input  wire [31:0] inst_sram_rdata,
+    input  wire        inst_sram_addr_ok,
+    input  wire        inst_sram_data_ok,
     // data sram interface
-    output wire        data_sram_en,   // chip select signal of data sram
-    output wire [ 3:0] data_sram_we,
+    output wire        data_sram_req,   // chip select signal of data sram
+    output wire        data_sram_wr,
+    output wire [ 1:0] data_sram_size,
+    output wire [ 3:0] data_sram_wstrb,
     output wire [31:0] data_sram_addr,
     output wire [31:0] data_sram_wdata,
     input  wire [31:0] data_sram_rdata,
+    input  wire        data_sram_addr_ok,
+    input  wire        data_sram_data_ok,
     // trace debug interface
     output wire [31:0] debug_wb_pc,
     output wire [ 3:0] debug_wb_rf_we,
@@ -278,8 +286,11 @@ always @(posedge clk) begin
         pipe_valid <= 5'b00000;
     end
     else begin
-        if (pipe_allowin[0]) begin
-                pipe_valid[0] <= 1'b1;
+        if (br_taken) begin
+            pipe_valid[0] <= 1'b0;
+        end
+        else if (pipe_allowin[0]) begin
+            pipe_valid[0] <= pipe_ready_go_preIF;
         end
         if (br_taken) begin
             pipe_valid[1] <= 1'b0;
@@ -318,10 +329,7 @@ always @(posedge clk) begin
     if (reset) begin
         pc <= 32'h1bfffffc;     //trick: to make nextpc be 0x1c000000 during reset 
     end
-    else if (br_taken) begin
-        pc <= nextpc;
-    end
-    else if (pipe_allowin[0])begin
+    else if (pipe_ready_go_preIF)begin
         pc <= nextpc;
     end
 end
@@ -330,46 +338,104 @@ assign pc_unalign = pc[1:0] != 2'b00;
 assign ex_IF = pc_unalign;
 assign csr_ecode = pc_unalign ? 6'h8 : 6'h0;
 
-assign inst = inst_sram_rdata;  // instruction memory read data
-
 // store the first instruction in the pipeline when IF stays more than 1 cycle
 
 reg first_IF; // signal for the first instruction in the pipeline
 reg [31:0] inst_IF_reg; // register for store the instruction
+reg inst_IF_reg_valid; // signal for the valid of the instruction in the register
+reg cancel_next_inst; // signal for cancel the next instruction
 
 always @(posedge clk) begin
     if (reset) begin
+        first_IF <= 1'b0;
+    end
+    else if (pipe_ready_go_preIF) begin
         first_IF <= 1'b1;
     end
-    else if (br_taken) begin
-        first_IF <= 1'b1;
-    end
-    else if (pipe_tonext_valid[0]) begin
-        first_IF <= 1'b1;
-    end
-    else begin
-        first_IF <= !pipe_valid[0];
+    else if (inst_sram_data_ok) begin
+        first_IF <= 1'b0;
     end
 end
 
 always @(posedge clk) begin
-    if (first_IF) begin
-        inst_IF_reg <= inst;
+    if (reset) begin
+        inst_IF_reg <= 32'h0;
+    end
+    else if (inst_sram_data_ok) begin
+        inst_IF_reg <= inst_sram_rdata;
     end
 end
 
+always @(posedge clk) begin
+    if (reset) begin
+        inst_IF_reg_valid <= 1'b0;
+    end
+    else if (flush && !pipe_allowin[0] && pipe_ready_go[0]) begin
+        inst_IF_reg_valid <= 1'b0;
+    end
+    else if (pipe_ready_go[0] && !pipe_allowin[1])
+        inst_IF_reg_valid <= 1'b1;
+    else 
+        inst_IF_reg_valid <= 1'b0;
+end
+
+assign inst = first_IF || inst_sram_data_ok ? inst_sram_rdata : inst_IF_reg;
+
 // pre-IF stage
+wire pipe_ready_go_preIF;
+reg [31:0] br_target_reg;
+reg  br_taken_valid;
+
+assign pipe_ready_go_preIF = inst_sram_req && inst_sram_addr_ok;    
+
+always @(posedge clk) begin
+    if (reset) begin
+        cancel_next_inst <= 1'b0;
+    end
+    else if (br_taken && inst_sram_req && inst_sram_addr_ok) begin
+        cancel_next_inst <= 1'b1; // inst_sram gets addr_ok when cancel signal comes, cancel the next instruction
+    end
+    else if (br_taken && !pipe_allowin[0] && !pipe_ready_go[0]) begin
+        cancel_next_inst <= 1'b1; // inst_sram is waiting for data_ok when cancel signal comes, cancel the next instruction
+    end
+    else if (cancel_next_inst && inst_sram_data_ok) begin
+        cancel_next_inst <= 1'b0;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset) begin
+        br_taken_valid <= 1'b0;
+    end
+    else if (br_taken) begin
+        br_taken_valid <= 1'b1;
+    end
+    else if (inst_sram_addr_ok) begin
+        br_taken_valid <= 1'b0;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset) begin
+        br_target_reg <= 32'h0;
+    end
+    else if (br_taken) begin
+        br_target_reg <= br_target;
+    end
+end
 
 assign seq_pc       = pc + 3'h4;
-assign nextpc       = br_taken ? br_target : 
-                                 seq_pc;
+assign nextpc       = br_taken_valid ? br_target_reg : 
+                                                        seq_pc;
 
-assign inst_sram_en    = 1'b1;  // instruction memory enable
-assign inst_sram_we    = 4'b0;  // instruction memory strb
+assign inst_sram_req    = pipe_allowin[0] && !((ex_WB || has_int_WB) && br_taken);  // instruction memory enable
+assign inst_sram_wr     = 1'b0;  // instruction memory write enable
+assign inst_sram_wstrb    = 4'b0;  // instruction memory strb
+assign inst_sram_size    = 2'b10;  // instruction memory size
 assign inst_sram_addr  = nextpc;  // instruction memory address
 assign inst_sram_wdata = 32'b0;  // instruction memory write data
 
-assign pipe_ready_go[0] = pipe_valid[0];
+assign pipe_ready_go[0] = pipe_valid[0] && (inst_sram_data_ok || inst_IF_reg_valid) && !cancel_next_inst;
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -385,12 +451,7 @@ wire [ 5:0] csr_ecode_ID_m; // This signal is used to get the csr_ecode in ID st
 
 always @(posedge clk) begin
     if (pipe_tonext_valid[0]) begin
-        if (first_IF) begin
-            inst_ID <= inst;
-        end else begin
-            inst_ID <= inst_IF_reg;
-        end
-
+        inst_ID <= inst;
         pc_ID   <= pc;
         ex_ID   <= ex_IF;
         csr_ecode_ID    <= csr_ecode;
@@ -407,16 +468,17 @@ end
 wire ID_stay;
 wire ID_stay3;
 assign ID_stay   = df_ld_r1_EX   && rf_using1
+                || df_ld_r1_MEM  && rf_using1
+                || df_ld_r1_WB   && rf_using1
                 || df_alu_r1_MEM && rf_using1
                 || df_mul_r1_MEM && rf_using1
                 || df_csr_r1_MEM && rf_using1
                 || df_ld_r2_EX   && rf_using2
+                || df_ld_r2_MEM  && rf_using2
+                || df_ld_r2_WB   && rf_using2
                 || df_alu_r2_MEM && rf_using2
                 || df_mul_r2_MEM && rf_using2
                 || df_csr_r2_MEM && rf_using2
-                || df_rdcntid_r1_EX && rf_using1
-                || df_rdcntid_r1_MEM && rf_using1
-                || df_rdcntid_r1_WB && rf_using1;
 ;
 assign ID_stay3  = df_rdcntid_r1_EX && rf_using1
                 || df_rdcntid_r1_MEM && rf_using1
@@ -1148,7 +1210,7 @@ end
 assign div_src1 = rj_value_EX;
 assign div_src2 = rkd_value_EX;
 
-reg div_executing; //除法是否正在执行
+reg div_executing; //??????????????
 always @(posedge clk) begin
     if (reset) begin
         div_executing <= 1'b0;
@@ -1161,7 +1223,7 @@ always @(posedge clk) begin
     end
 end
 
-reg div_valid; //是否可以进行除法
+reg div_valid; //?????????????
 always @(posedge clk) begin
     if(reset) begin
         div_valid <= 1'b0;
@@ -1177,7 +1239,7 @@ end
 assign s_divisor_valid  = div_inst_EX && div_valid;
 assign u_divisor_valid  = div_inst_EX && div_valid;
 assign s_dividend_valid = div_inst_EX && div_valid;
-assign u_dividend_valid = div_inst_EX && div_valid; //当执行阶段的指令是除法指令，且判断除法指令可以执行时，拉高握手信号
+assign u_dividend_valid = div_inst_EX && div_valid; //?????????????????????????????????????????????????????
 
 // signed division
 
@@ -1224,17 +1286,6 @@ assign csr_ecode_EX_m = csr_ecode_EX != 6'b0 ? csr_ecode_EX
                                             : {6{addr_unalign}} & 6'h9;
 assign ex_EX_m = ex_EX | addr_unalign;
 
-assign data_sram_en    = 1'b1;
-assign data_sram_addr  = alu_result;
-assign data_sram_we    = (inst_st_b_EX ? (4'h1 << data_sram_addr[1:0]) :
-                          inst_st_h_EX ? (4'h3 << data_sram_addr[1:0]) :
-                                          4'hf) 
-                        & {4{mem_we_EX && pipe_valid[2] && ~has_int && ~ex_EX_m && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB}}; // If has exception in the pipeline, do not write to data_sram
-
-assign data_sram_wdata = inst_st_b_EX ? {4{rkd_value_EX[ 7:0]}} :
-                         inst_st_h_EX ? {2{rkd_value_EX[15:0]}} :
-                                         rkd_value_EX;
-
 reg div_out_valid;
 
 always @(posedge clk) begin
@@ -1277,7 +1328,6 @@ assign pipe_ready_go[2] = pipe_valid[2] && (div_out_valid || (s_div_in_EX && s_d
 reg  [31:0] pc_MEM;
 reg  [31:0] alu_result_MEM;
 reg  [31:0] cnt_result_MEM;
-reg  [31:0] data_sram_addr_MEM;
 reg  [31:0] csr_value_MEM;
 
 reg         inst_ld_w_MEM;
@@ -1298,6 +1348,7 @@ reg  [31:0] rkd_value_MEM;
 reg         res_from_mem_MEM;
 reg         res_from_csr_MEM; // exp12: add csr instructions
 reg         gr_we_MEM;
+reg         mem_we_MEM;
 reg  [ 4:0] dest_MEM;
 reg  [13:0] csr_dest_MEM; 
 
@@ -1319,7 +1370,6 @@ always @(posedge clk) begin
         pc_MEM           <= pc_EX;
         alu_result_MEM   <= alu_result;
         cnt_result_MEM   <= cnt_result;
-        data_sram_addr_MEM <= data_sram_addr;
         res_from_mem_MEM <= res_from_mem_EX;
         res_from_csr_MEM <= res_from_csr_EX;
         dest_MEM         <= dest_EX;  
@@ -1356,10 +1406,12 @@ always @(posedge clk) begin
     if (flush) begin
         gr_we_MEM        <= 1'b0;
         csr_we_MEM       <= 1'b0;
+        mem_we_MEM       <= 1'b0;
     end
     else if(pipe_tonext_valid[2]) begin
         gr_we_MEM        <= gr_we_EX_m;
         csr_we_MEM       <= csr_we_EX;
+        mem_we_MEM       <= mem_we_EX;
     end
 end
 
@@ -1367,23 +1419,100 @@ end
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MEM stage
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+reg [3:0] current_state;
+reg [3:0] next_state;
+localparam NR = 4'b0001, // no request
+           WA = 4'b0010, // wait for addr_ok
+           WD = 4'b0100, // wait for data_ok
+           RD = 4'b1000; // read data from sram
+
+always @(posedge clk) begin
+    if(reset || !pipe_valid[3]) begin
+        current_state <= NR;
+    end
+    else begin
+        current_state <= next_state;
+    end
+end
+
+always @(*) begin
+    case(current_state)
+        NR: 
+            if (!data_sram_req) begin
+                next_state = NR;
+            end
+            else if (!data_sram_addr_ok) begin
+                next_state = WA;
+            end
+            else if (data_sram_addr_ok && data_sram_data_ok) begin
+                next_state = RD;
+            end
+            else begin
+                next_state = WD;
+            end
+        WA:
+            if (data_sram_addr_ok && !data_sram_data_ok) begin
+                next_state = WD;
+            end
+            else if (data_sram_addr_ok && data_sram_data_ok) begin
+                next_state = RD;
+            end
+            else begin
+                next_state = WA;
+            end
+        WD:
+            if (data_sram_data_ok) begin
+                next_state = RD;
+            end
+            else begin
+                next_state = WD;
+            end
+        RD: 
+            if (pipe_allowin[4]) begin
+                next_state = NR;
+            end
+            else begin
+                next_state = RD;
+            end
+        default:
+            next_state = NR;
+    endcase
+end
 
 
-assign mem_result   = inst_ld_b_MEM ? data_sram_addr_MEM[1:0] == 2'h0 ? {{24{data_sram_rdata[ 7]}}, data_sram_rdata[ 7: 0]} :
-                                      data_sram_addr_MEM[1:0] == 2'h1 ? {{24{data_sram_rdata[15]}}, data_sram_rdata[15: 8]} :
-                                      data_sram_addr_MEM[1:0] == 2'h2 ? {{24{data_sram_rdata[23]}}, data_sram_rdata[23:16]} :
+
+assign data_sram_req   = (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM 
+                       || inst_ld_hu_MEM || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) 
+                       && pipe_valid[3] && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB
+                       && (current_state == NR || current_state == WA);
+assign data_sram_addr  = alu_result_MEM;
+assign data_sram_wstrb    = (inst_st_b_MEM ? (4'h1 << data_sram_addr[1:0]) :
+                          inst_st_h_MEM ? (4'h3 << data_sram_addr[1:0]) :
+                                          4'hf) 
+                        & {4{mem_we_MEM && pipe_valid[3] && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB}}; // If has exception in the pipeline, do not write to data_sram
+assign data_sram_wr = |data_sram_wstrb;
+assign data_sram_size = inst_ld_h_MEM || inst_ld_hu_MEM || inst_st_h_MEM ? 2'b01 :
+                        inst_ld_b_MEM || inst_ld_bu_MEM || inst_st_b_MEM ? 2'b00 :
+                        2'b10;
+assign data_sram_wdata = inst_st_b_MEM ? {4{rkd_value_MEM[ 7:0]}} :
+                         inst_st_h_MEM ? {2{rkd_value_MEM[15:0]}} :
+                                         rkd_value_MEM;
+
+assign mem_result   = inst_ld_b_MEM ? data_sram_addr[1:0] == 2'h0 ? {{24{data_sram_rdata[ 7]}}, data_sram_rdata[ 7: 0]} :
+                                      data_sram_addr[1:0] == 2'h1 ? {{24{data_sram_rdata[15]}}, data_sram_rdata[15: 8]} :
+                                      data_sram_addr[1:0] == 2'h2 ? {{24{data_sram_rdata[23]}}, data_sram_rdata[23:16]} :
                                                                         {{24{data_sram_rdata[31]}}, data_sram_rdata[31:24]} :
-                      inst_ld_h_MEM ? data_sram_addr_MEM[1:0] == 2'h0 ? {{16{data_sram_rdata[15]}}, data_sram_rdata[15: 0]} :
+                      inst_ld_h_MEM ? data_sram_addr[1:0] == 2'h0 ? {{16{data_sram_rdata[15]}}, data_sram_rdata[15: 0]} :
                                                                         {{16{data_sram_rdata[31]}}, data_sram_rdata[31:16]} :
-                      inst_ld_bu_MEM ? data_sram_addr_MEM[1:0] == 2'h0 ? {{24'b0, data_sram_rdata[ 7: 0]}} :
-                                       data_sram_addr_MEM[1:0] == 2'h1 ? {{24'b0, data_sram_rdata[15: 8]}} :
-                                       data_sram_addr_MEM[1:0] == 2'h2 ? {{24'b0, data_sram_rdata[23:16]}} :
+                      inst_ld_bu_MEM ? data_sram_addr[1:0] == 2'h0 ? {{24'b0, data_sram_rdata[ 7: 0]}} :
+                                       data_sram_addr[1:0] == 2'h1 ? {{24'b0, data_sram_rdata[15: 8]}} :
+                                       data_sram_addr[1:0] == 2'h2 ? {{24'b0, data_sram_rdata[23:16]}} :
                                                                          {{24'b0, data_sram_rdata[31:24]}} :
-                      inst_ld_hu_MEM ? data_sram_addr_MEM[1:0] == 2'h0 ? {{16'b0, data_sram_rdata[15: 0]}} :
+                      inst_ld_hu_MEM ? data_sram_addr[1:0] == 2'h0 ? {{16'b0, data_sram_rdata[15: 0]}} :
                                                                          {{16'b0, data_sram_rdata[31:16]}} :
                                                                           data_sram_rdata;
 
-assign pipe_ready_go[3] = pipe_valid[3];
+assign pipe_ready_go[3] = pipe_valid[3] && (current_state == RD || current_state == NR && !data_sram_req);
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
