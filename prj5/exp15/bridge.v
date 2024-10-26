@@ -79,9 +79,9 @@ assign arburst = 2'b01; //固定为01
 assign arlock = 2'b00; //固定为0
 assign arcache = 4'b0000; //固定为0
 assign arprot = 3'b000; //固定为0
-assign arvalid = inst_sram_req | data_sram_req & ~data_sram_wr; //读请求有效
+assign arvalid = (inst_sram_req & (data_rdata_ok | data_write_ok)) | (data_sram_req & ~data_sram_wr & !data_raddr_ok); //读请求有效
 
-assign rready = 1'b1; //随时准备接收读数据
+assign rready = data_raddr_ok | inst_raddr_ok; // 数据读完成握手或指令读完成握手
 
 assign awid = 4'b0001; //固定为1
 assign awaddr = data_sram_addr; //写地址
@@ -91,15 +91,15 @@ assign awburst = 2'b01; //固定为01
 assign awlock = 2'b00; //固定为0
 assign awcache = 4'b0000; //固定为0
 assign awprot = 3'b000; //固定为0
-assign awvalid = data_sram_req & data_sram_wr; //写请求有效
+assign awvalid = data_sram_req & data_sram_wr & !data_waddr_ok; //写请求有效
 
 assign wid = 4'b0001; //固定为1
 assign wdata = data_sram_wdata; //写数据
 assign wstrb = data_sram_wstrb; //写掩码
 assign wlast = 1'b1; //固定为1
-assign wvalid = data_sram_req & data_sram_wr; //写请求数据有效
+assign wvalid = data_sram_req & data_sram_wr & data_waddr_ok; //写请求数据有效
 
-assign bready = 1'b1; //随时准备接收写响应
+assign bready = data_wdata_ok; // 写数据完成二次握手
 
 assign inst_sram_rdata = rdata; //指令码
 assign inst_sram_addr_ok = arvalid & arready & ~arid; //指令地址有效

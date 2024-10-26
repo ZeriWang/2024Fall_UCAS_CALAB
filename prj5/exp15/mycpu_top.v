@@ -1674,6 +1674,18 @@ always @(posedge aclk) begin
     end
 end
 
+always @(posedge aclk) begin
+    if(reset) begin
+        inst_raddr_ok = 1'b0;
+    end
+    else if(inst_sram_addr_ok) begin
+        inst_raddr_ok = 1'b1;
+    end
+    else if(pipe_ready_go[3]) begin
+        inst_raddr_ok = 1'b0;
+    end
+end
+
 
 
 assign pipe_ready_go[3] = pipe_valid[3] && (current_state == RD || current_state == NR && !data_sram_req);
