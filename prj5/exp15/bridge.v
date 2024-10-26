@@ -62,7 +62,13 @@ module bridge(
     input  wire [31:0] data_sram_wdata,
     output wire [31:0] data_sram_rdata,
     output wire        data_sram_addr_ok,
-    output wire        data_sram_data_ok
+    output wire        data_sram_data_ok,
+    input  wire        data_waddr_ok,
+    input  wire        data_wdata_ok,
+    input  wire        data_write_ok,
+    input  wire        data_raddr_ok,
+    input  wire        data_rdata_ok,
+    input  wire        inst_raddr_ok,
 );
 
 assign arid = inst_sram_req ? 4'b0000 : 4'b0001; //0指令，1数据
@@ -91,7 +97,7 @@ assign wid = 4'b0001; //固定为1
 assign wdata = data_sram_wdata; //写数据
 assign wstrb = data_sram_wstrb; //写掩码
 assign wlast = 1'b1; //固定为1
-assign wvalid = data_sram_req; //写请求数据有效
+assign wvalid = data_sram_req & data_sram_wr; //写请求数据有效
 
 assign bready = 1'b1; //随时准备接收写响应
 
