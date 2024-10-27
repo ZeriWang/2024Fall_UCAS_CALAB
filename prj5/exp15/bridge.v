@@ -69,19 +69,22 @@ module bridge(
     input  wire        data_raddr_ok,
     input  wire        data_rdata_ok,
     input  wire        inst_raddr_ok,
+    input  wire        memory_access,
+    input  wire        inst_sram_using
 );
 
-assign arid = inst_sram_req ? 4'b0000 : 4'b0001; //0指令，1数据
-assign araddr = ~arid ? inst_sram_addr : data_sram_addr; //读地址
+assign arid = (!memory_access | (memory_access && (data_write_ok | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
+assign araddr = (arid == 4'b0) ? inst_sram_addr : data_sram_addr; //读地址
 assign arlen = 8'b00000000; //固定为0
-assign arsize = ~arid ? inst_sram_size : data_sram_size; //读大小
+assign arsize = (arid == 4'b0) ? inst_sram_size : data_sram_size; //读大小
 assign arburst = 2'b01; //固定为01
 assign arlock = 2'b00; //固定为0
 assign arcache = 4'b0000; //固定为0
 assign arprot = 3'b000; //固定为0
-assign arvalid = (inst_sram_req & (data_rdata_ok | data_write_ok)) | (data_sram_req & ~data_sram_wr & !data_raddr_ok); //读请求有效
+assign arvalid = (inst_sram_req) | (data_sram_req & ~data_sram_wr); //读请求有效
 
-assign rready = data_raddr_ok | inst_raddr_ok; // 数据读完成握手或指令读完成握手
+assign rready = (data_raddr_ok & !data_rdata_ok) | (inst_raddr_ok & (!memory_access || (memory_access && (data_write_ok || data_rdata_ok))))
+                | inst_sram_using & inst_raddr_ok; // 数据读完成握手或指令读完成握手
 
 assign awid = 4'b0001; //固定为1
 assign awaddr = data_sram_addr; //写地址
@@ -91,22 +94,22 @@ assign awburst = 2'b01; //固定为01
 assign awlock = 2'b00; //固定为0
 assign awcache = 4'b0000; //固定为0
 assign awprot = 3'b000; //固定为0
-assign awvalid = data_sram_req & data_sram_wr & !data_waddr_ok; //写请求有效
+assign awvalid = data_sram_req & data_sram_wr; //写请求有效
 
 assign wid = 4'b0001; //固定为1
 assign wdata = data_sram_wdata; //写数据
 assign wstrb = data_sram_wstrb; //写掩码
 assign wlast = 1'b1; //固定为1
-assign wvalid = data_sram_req & data_sram_wr & data_waddr_ok; //写请求数据有效
+assign wvalid = data_waddr_ok & !data_wdata_ok; //写请求数据有效
 
 assign bready = data_wdata_ok; // 写数据完成二次握手
 
 assign inst_sram_rdata = rdata; //指令码
-assign inst_sram_addr_ok = arvalid & arready & ~arid; //指令地址有效
-assign inst_sram_data_ok = rvalid & rready; //指令数据有效
+assign inst_sram_addr_ok = arvalid & arready & (arid == 4'b0); //指令地址有效
+assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok; //指令数据有效
 
-assign data_sram_rdata = rdata; //读数据
-assign data_sram_addr_ok = arvalid & arready & arid & ~data_sram_wr | awvalid & awready & arid & data_sram_wr; //数据地址有效
-assign data_sram_data_ok = rvalid & rready & ~data_sram_wr | bvalid & bready & data_sram_wr; //读写数据有效
+assign data_sram_rdata = {32{arid == 4'b1}} & rdata; //读数据
+assign data_sram_addr_ok = arvalid & arready & (arid == 4'b1) & ~data_sram_wr | awvalid & awready & (arid == 4'b1) & data_sram_wr & ~inst_sram_using; //数据地址有效
+assign data_sram_data_ok = rvalid & rready & ~data_sram_wr | bvalid & bready & data_sram_wr & ~inst_sram_using; //读写数据有效
 
 endmodule
