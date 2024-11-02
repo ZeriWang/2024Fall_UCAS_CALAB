@@ -63,14 +63,14 @@ module bridge(
     output wire [31:0] data_sram_rdata,
     output wire        data_sram_addr_ok,
     output wire        data_sram_data_ok,
-    input  wire        data_waddr_ok, //数据SRAM写地址传输完成
-    input  wire        data_wdata_ok, //数据SRAM写数据传输完成
-    input  wire        data_write_ok, //数据SRAM写入完成
-    input  wire        data_raddr_ok, //数据SRAM读地址传输完成
-    input  wire        data_rdata_ok, //数据SRAM读数据传输完成
-    input  wire        inst_raddr_ok, //指令SRAM读地址传输完成
-    input  wire        memory_access, //内存访问使能
-    input  wire        inst_sram_using //指令SRAM正在使用标志
+    input  wire        data_waddr_ok,
+    input  wire        data_wdata_ok,
+    input  wire        data_write_ok,
+    input  wire        data_raddr_ok,
+    input  wire        data_rdata_ok,
+    input  wire        inst_raddr_ok,
+    input  wire        memory_access,
+    input  wire        inst_sram_using
 );
 
 assign arid = (!memory_access | (memory_access && (data_write_ok | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
