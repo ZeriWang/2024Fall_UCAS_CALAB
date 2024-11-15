@@ -38,7 +38,7 @@ module csr_regfile(
     input  [ 3:0] tlbidx_index_wdata,
     input  [ 5:0] tlbidx_ps_wdata,
     input         tlbidx_ne_wdata,
-    input  [31:0] tlbehi_wdata,
+    input  [18:0] tlbehi_vppn_wdata,
     input  [31:0] tlbelo0_wdata,
     input  [31:0] tlbelo1_wdata
 );
@@ -213,8 +213,13 @@ always @(posedge clk) begin
 end
 
 always @(posedge clk) begin
-    if (reset)
+    if (reset) begin
         csr_crmd_ie <= 1'b0;
+        csr_crmd_da <= 1'b1;
+        csr_crmd_pg <= 1'b0;
+        csr_crmd_datf <= 2'b0;
+        csr_crmd_datm <= 2'b0;
+    end
     else if (wb_ex)
         csr_crmd_ie <= 1'b0;
     else if (ertn_flush)
@@ -403,7 +408,7 @@ assign csr_asid_asidbits = 8'd10;
 // TLBEHI
 always @(posedge clk) begin
     if (tlbe_we)
-        csr_tlbehi_vppn <= tlbehi_wdata;
+        csr_tlbehi_vppn <= tlbehi_vppn_wdata;
     else if (csr_we && csr_waddr==`CSR_TLBEHI)
         csr_tlbehi_vppn <= csr_wmask[`CSR_TLBEHI_VPPN] & csr_wdata[`CSR_TLBEHI_VPPN]
                         | ~csr_wmask[`CSR_TLBEHI_VPPN] & csr_tlbehi_vppn;

@@ -185,6 +185,30 @@ always @(posedge aclk) begin
 end
 wire flush = (ex_WB || has_int_WB) && flush_rst; // Flush signal to flush the pipeline when exception or interrupt. The way to flush is to set the gr_we/csr_we/mem_we to 0 in all stages.
 
+reg  tlb_refetch_flag_rst;
+always @(posedge aclk) begin
+    if (reset) begin
+        tlb_refetch_flag_rst <= 1'b1;
+    end
+    else if (pipe_ready_go[0]) begin
+        tlb_refetch_flag_rst <= 1'b0;
+    end
+end
+
+wire tlb_refetch_flag = (csr_we && (csr_dest == 14'h0 || csr_dest == 14'h180 || csr_dest == 14'h181 || csr_dest == 14'h18) || inst_tlbwr || inst_tlbfill || inst_tlbrd || inst_invtlb) && ~tlb_refetch_flag_rst && ~inst_need_refetch_ID && ~ex_ID_m;
+reg inst_need_refetch;
+always @(posedge aclk) begin
+    if (reset) begin
+        inst_need_refetch <= 1'b0;
+    end
+    else if (tlb_refetch_flag) begin
+        inst_need_refetch <= 1'b1;
+    end
+    else if (!tlb_refetch_flag && !tlb_refetch_flag_EX && !tlb_refetch_flag_MEM && !tlb_refetch_flag_WB && pipe_ready_go_preIF) begin
+        inst_need_refetch <= 1'b0;
+    end
+end
+
 wire [31:0] seq_pc;
 wire [31:0] nextpc;
 wire        br_taken;
@@ -385,6 +409,7 @@ wire [31:0] ex_entry;
 
 wire pc_unalign;
 wire inst_not_exist;
+wire invtlb_op_not_exist;
 wire addr_unalign;
 wire ex_IF;
 wire has_int;
@@ -494,7 +519,7 @@ always @(posedge aclk) begin
     if (reset) begin
         inst_IF_reg_valid <= 1'b0;
     end
-    else if (flush && !pipe_allowin[0] && pipe_ready_go[0]) begin
+    else if ((inst_need_refetch_WB || flush) && !pipe_allowin[0] && pipe_ready_go[0]) begin
         inst_IF_reg_valid <= 1'b0;
     end
     else if (pipe_ready_go[0] && !pipe_allowin[1])
@@ -563,8 +588,9 @@ always @(posedge aclk) begin
 end
 
 assign seq_pc       = pc + 3'h4;
-assign nextpc       = br_taken_valid ? br_target_reg : 
-                                                        seq_pc;
+assign nextpc       = inst_need_refetch_WB ? pc_WB :
+                      br_taken_valid ? br_target_reg : 
+                                            seq_pc;
 
 assign inst_sram_req    = pipe_allowin[0] && !((ex_WB || has_int_WB) && br_taken) && (data_write_ok || data_rdata_ok || !(memory_access & !inst_sram_using)) && !inst_raddr_ok ;  // instruction memory enable
 assign inst_sram_wr     = 1'b0;  // instruction memory write enable
@@ -598,14 +624,19 @@ assign pipe_ready_go[0] = pipe_valid[0] && (inst_rdata_ok || inst_IF_reg_valid) 
 reg  [31:0] inst_ID;
 reg  [31:0] pc_ID;
 reg         ex_ID;
+reg         inst_need_refetch_ID;
 reg  [ 5:0] csr_ecode_ID; // This signal is used to get the csr_ecode passed to ID stage
 wire [ 5:0] csr_ecode_ID_m; // This signal is used to get the csr_ecode in ID stage
 
 always @(posedge aclk) begin
-    if (pipe_tonext_valid[0]) begin
+    if (reset) begin
+        inst_need_refetch_ID <= 1'b0;
+    end
+    else if (pipe_tonext_valid[0]) begin
         inst_ID <= inst;
         pc_ID   <= pc;
         ex_ID   <= ex_IF;
+        inst_need_refetch_ID <= inst_need_refetch;
         csr_ecode_ID    <= csr_ecode;
     end
 end
@@ -864,6 +895,7 @@ assign div_op[2]  = inst_div_wu;
 assign div_op[3]  = inst_mod_wu;
 
 assign invtlb_op  = inst_ID[4:0];
+assign invtlb_op_not_exist = !(invtlb_op == 5'h0 || invtlb_op == 5'h1 || invtlb_op == 5'h2 || invtlb_op == 5'h3 || invtlb_op == 5'h4 || invtlb_op == 5'h5 || invtlb_op == 5'h6) && inst_invtlb;
 
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
 assign need_si12  =  inst_addi_w | inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_w | inst_st_b | inst_st_h | inst_slti | inst_sltui; // exp11: add load/store instructions
@@ -925,13 +957,13 @@ assign src2_is_imm   = inst_slli_w    | // shift instructions
 assign res_from_mem  = inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu; // exp11: add load instructions
 assign res_from_csr  = inst_csrrd | inst_csrwr | inst_csrxchg;
 assign dst_is_r1     = inst_bl;
-assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_ertn & ~ex_ID_m; // debug: gr_we wrong // exp11: add branch instructions & load/store instructions
-assign mem_we        = inst_st_w | inst_st_b | inst_st_h; // exp11: add store instructions
+assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_ertn & ~inst_tlbsrch & ~inst_tlbrd & ~inst_tlbwr & ~inst_tlbfill & ~inst_invtlb & ~ex_ID_m & ~inst_need_refetch_ID; // debug: gr_we wrong // exp11: add branch instructions & load/store instructions
+assign mem_we        = (inst_st_w | inst_st_b | inst_st_h) & ~inst_need_refetch_ID; // exp11: add store instructions
 assign dest          = dst_is_r1 ? 5'd1 : 
                        inst_rdcntid_w ? rj : // dest of rdcntid.w is rj
                                         rd;
 assign csr_dest      = inst_syscall ? 14'h6 : imm[13:0];
-assign csr_we    = inst_csrwr || inst_csrxchg;
+assign csr_we    = (inst_csrwr || inst_csrxchg) && ~inst_need_refetch_ID;
 
 
 regfile u_regfile(
@@ -1065,9 +1097,10 @@ assign inst_not_exist = ~inst_add_w & ~inst_sub_w & ~inst_slt & ~inst_sltu
                       & ~inst_div_w & ~inst_mod_w & ~inst_div_wu & ~inst_mod_wu 
                       & ~inst_csrrd & ~inst_csrwr & ~inst_csrxchg 
                       & ~inst_ertn & ~inst_syscall & ~inst_break
-                      & ~inst_rdcntid_w & ~inst_rdcntvl_w & ~inst_rdcntvh_w; // INE exception
+                      & ~inst_rdcntid_w & ~inst_rdcntvl_w & ~inst_rdcntvh_w
+                      & ~inst_tlbsrch & ~inst_tlbrd & ~inst_tlbwr & ~inst_tlbfill & ~inst_invtlb; // INE exception
 
-assign ex_ID_m = ex_ID | inst_syscall | inst_break | inst_not_exist;
+assign ex_ID_m = ex_ID | inst_syscall | inst_break | inst_not_exist | invtlb_op_not_exist;
 
 
 // CSR part
@@ -1108,11 +1141,11 @@ csr_regfile u_csr_regfile(
     .tlbidx_index_wdata (tlbidx_index_wdata),
     .tlbidx_ps_wdata (tlbidx_ps_wdata),
     .tlbidx_ne_wdata (tlbidx_ne_wdata),
-    .tlbehi_wdata (tlbehi_wdata),
+    .tlbehi_vppn_wdata (tlbehi_vppn_wdata),
     .tlbelo0_wdata (tlbelo0_wdata),
     .tlbelo1_wdata (tlbelo1_wdata)
     );
-assign csr_we_real = csr_we_WB; // Really need to write CSR
+assign csr_we_real = csr_we_WB_m; // Really need to write CSR
 assign csr_raddr = inst_ertn ? 14'b110 :
                    inst_rdcntid_w_WB ? 14'h40 :
                                        imm[13:0];
@@ -1120,7 +1153,7 @@ assign csr_ertn  = inst_ertn;
 assign csr_ecode_ID_m = csr_ecode_ID != 6'b0 ? csr_ecode_ID 
                                             : ({6{inst_syscall  }} & 6'hb 
                                             |  {6{inst_break    }} & 6'hc
-                                            |  {6{inst_not_exist}} & 6'hd);
+                                            |  {6{inst_not_exist || invtlb_op_not_exist}} & 6'hd);
 // assign csr_wdata = rkd_value_WB;
 // assign csr_we    = {32{inst_csrwr_WB}} | {32{inst_csrxchg_WB}} & rj_value_WB;
 //csr[waddr] <= ~we & csr[waddr] | we & wdata;
@@ -1133,12 +1166,17 @@ assign csr_value = df_csrwr_EX ? ~({32{inst_csrwr_EX}} | {32{inst_csrxchg_EX}} &
                    csr_rdata; 
 
 // TLB part
-wire [ 5:0] asid_asid;
+wire [ 9:0] asid_asid;
 wire [18:0] tlbehi_vppn;
 wire [ 3:0] tlbidx_index;
 wire [ 5:0] tlbidx_ps;
 wire        tlbidx_ne;
+wire [31:0] tlbelo0_rdata;
+wire [31:0] tlbelo1_rdata;
 reg  [ 3:0] tlbfill_dest;
+
+wire        asid_asid_we;
+wire [ 9:0] asid_asid_wdata;
 
 wire        tlbidx_index_we;
 wire        tlbidx_ps_we;
@@ -1146,6 +1184,10 @@ wire        tlbidx_ne_we;
 wire [ 3:0] tlbidx_index_wdata;
 wire [ 5:0] tlbidx_ps_wdata;
 wire        tlbidx_ne_wdata;
+
+wire [18:0] tlbehi_vppn_wdata;
+wire [31:0] tlbelo0_wdata;
+wire [31:0] tlbelo1_wdata;
 
 wire [ 9:0] s0_found;
 wire [ 3:0] s0_index;
@@ -1238,7 +1280,7 @@ tlb u_tlb(
     .w_e(w_e),
     .w_vppn(w_vppn),
     .w_ps(w_ps),
-    .w_asid(asid_asid),
+    .w_asid(w_asid),
     .w_g(w_g),
     .w_ppn0(w_ppn0),
     .w_plv0(w_plv0),
@@ -1255,7 +1297,7 @@ tlb u_tlb(
     .r_e(r_e),
     .r_vppn(r_vppn),
     .r_ps(r_ps),
-    .r_asid(asid_asid),
+    .r_asid(r_asid),
     .r_g(r_g),
     .r_ppn0(r_ppn0),
     .r_plv0(r_plv0),
@@ -1269,26 +1311,25 @@ tlb u_tlb(
     .r_v1(r_v1)
 );
 
-assign s1_vppn = inst_tlbsrch_EX ? tlbehi_vppn : // for tlbsrch
-                 invtlb_valid ?    rkd_value_EX[18:0] : // for invtlb
-                                   data_sram_addr[31:13]; //for load/store
-assign s1_asid = invtlb_valid ? rj_value_EX[9:0] : // for invtlb
-                                asid_asid; // for load/store
+assign s1_vppn = inst_tlbsrch_MEM ? tlbehi_vppn : // for tlbsrch
+                                    rkd_value_MEM[31:13]; //for invtlb
+assign s1_asid = invtlb_valid ? rj_value_MEM[9:0] : // for invtlb
+                                asid_asid; // for other instructions
 
-assign tlbidx_index_we = inst_tlbsrch_EX && s1_found;
-assign tlbidx_ne_we = inst_tlbsrch_EX || inst_tlbrd_WB;
+assign tlbidx_index_we = inst_tlbsrch_MEM && s1_found;
+assign tlbidx_ne_we = inst_tlbsrch_MEM || inst_tlbrd_WB;
 assign tlbidx_ps_we = inst_tlbrd_WB;
 
 assign tlbidx_index_wdata = s1_index;
-assign tlbidx_ne_wdata = (inst_tlbsrch_EX && s1_found) ? 1 : 
-                         (inst_tlbrd_WB && r_e) ? 1 : 0;
+assign tlbidx_ne_wdata = (inst_tlbsrch_MEM && !s1_found) | (inst_tlbrd_WB) & !r_e;
+
 assign tlbidx_ps_wdata = (inst_tlbrd_WB && r_e) ? r_ps : 6'b0;
 
 assign tlbe_we = inst_tlbrd_WB;
-assign asid_asid_we = inst_tlbrd_WB && !r_e;
+assign asid_asid_we = inst_tlbrd_WB;
 assign r_index = tlbidx_index;
-assign asid_asid_wdata = (inst_tlbrd_WB && !r_e) ? 10'b0 : asid_asid;
-assign tlbehi_wdata = (inst_tlbrd_WB && r_e) ? {r_vppn, 13'b0} : 32'b0;
+assign asid_asid_wdata = (inst_tlbrd_WB && !r_e) ? 10'b0 : r_asid;
+assign tlbehi_vppn_wdata = (inst_tlbrd_WB && r_e) ? r_vppn : 19'b0;
 assign tlbelo0_wdata = (inst_tlbrd_WB && r_e) ? {4'b0, r_ppn0, 1'b0, r_g, r_mat0, r_plv0, r_d0, r_v0} : 32'b0;
 assign tlbelo1_wdata = (inst_tlbrd_WB && r_e) ? {4'b0, r_ppn1, 1'b0, r_g, r_mat1, r_plv1, r_d1, r_v1} : 32'b0;
 
@@ -1310,7 +1351,7 @@ assign w_mat1 = tlbelo1_rdata[5:4];
 assign w_d1 = tlbelo1_rdata[1];
 assign w_v1 = tlbelo1_rdata[0];
 
-always @(posedge clk) begin
+always @(posedge aclk) begin
     if (reset) begin
         tlbfill_dest <= 4'b0;
     end
@@ -1319,8 +1360,8 @@ always @(posedge clk) begin
     end
 end
 
-assign invtlb_valid = inst_invtlb_EX;
-assign invtlb_op_in = invtlb_op_EX;
+assign invtlb_valid = inst_invtlb_MEM;
+assign invtlb_op_in = invtlb_op_MEM;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ID stage to EX stage
@@ -1394,6 +1435,9 @@ reg  [ 5:0] csr_ecode_EX;
 wire ex_EX_m;
 wire [ 5:0] csr_ecode_EX_m;
 
+reg  tlb_refetch_flag_EX;
+reg  inst_need_refetch_EX;
+
 reg  [31:0] imm_EX;
 reg  [31:0] br_offs_EX;
 reg  [31:0] jirl_offs_EX;
@@ -1405,6 +1449,7 @@ reg         res_from_csr_EX;
 reg         gr_we_EX;
 wire        gr_we_EX_m;
 reg         mem_we_EX;
+wire        mem_we_EX_m;
 reg  [ 4:0] dest_EX;
 reg  [13:0] csr_dest_EX;
 
@@ -1412,9 +1457,14 @@ reg  [31:0] rj_value_EX;
 reg  [31:0] rkd_value_EX;
 reg  [31:0] csr_value_EX;
 reg         csr_we_EX;
+wire        csr_we_EX_m;
 
 always @(posedge aclk) begin
-    if(pipe_tonext_valid[1]) begin
+    if (reset) begin
+        tlb_refetch_flag_EX <= 1'b0;
+        inst_need_refetch_EX <= 1'b0;
+    end
+    else if(pipe_tonext_valid[1]) begin
         pc_EX           <= pc_ID;
         alu_op_EX       <= alu_op;
 //    inst_add_w_EX   <= inst_add_w;
@@ -1457,6 +1507,8 @@ always @(posedge aclk) begin
         inst_invtlb_EX  <= inst_invtlb;
         invtlb_op_EX    <= invtlb_op;
         ex_EX           <= ex_ID_m;
+        tlb_refetch_flag_EX <= tlb_refetch_flag;
+        inst_need_refetch_EX <= inst_need_refetch_ID;
         imm_EX          <= imm;
         br_offs_EX      <= br_offs;
         jirl_offs_EX    <= jirl_offs;
@@ -1502,7 +1554,9 @@ always @(posedge aclk) begin
     end
 end
 
-assign gr_we_EX_m = gr_we_EX && ~ex_EX_m;
+assign gr_we_EX_m = gr_we_EX && ~ex_EX_m && ~inst_need_refetch_EX;
+assign mem_we_EX_m = mem_we_EX && ~ex_EX_m && ~inst_need_refetch_EX;
+assign csr_we_EX_m = csr_we_EX && ~ex_EX_m && ~inst_need_refetch_EX;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // EX stage
@@ -1536,7 +1590,7 @@ assign br_taken = (   inst_beq_EX  &&  rj_eq_rd
                    || inst_bl_EX
                    || inst_b_EX
                    || inst_ertn_EX // exp12: add csr instruction
-                  ) && pipe_valid[2] && first_EX && ~br_taken_valid
+                  ) && pipe_valid[2] && first_EX && ~br_taken_valid && ~inst_need_refetch_EX
                    || (ex_WB || has_int_WB) && pipe_valid[4];
 assign br_target =  (ex_WB || has_int_WB) ? ex_entry : // when there is an exception, jump to the ex_entry
                     (inst_beq_EX || inst_bne_EX || inst_bl_EX || inst_b_EX || inst_blt_EX || inst_bge_EX || inst_bltu_EX || inst_bgeu_EX) ? (pc_EX + br_offs_EX) :
@@ -1732,7 +1786,9 @@ reg  [31:0] rkd_value_MEM;
 reg         res_from_mem_MEM;
 reg         res_from_csr_MEM; // exp12: add csr instructions
 reg         gr_we_MEM;
+wire        gr_we_MEM_m;
 reg         mem_we_MEM;
+wire        mem_we_MEM_m;
 reg  [ 4:0] dest_MEM;
 reg  [13:0] csr_dest_MEM; 
 
@@ -1741,12 +1797,19 @@ reg  inst_csrwr_MEM;
 reg  inst_csrxchg_MEM;
 reg  inst_ertn_MEM;
 reg  inst_syscall_MEM;
+reg  inst_tlbsrch_MEM;
 reg  inst_tlbrd_MEM;
 reg  inst_tlbwr_MEM;
 reg  inst_tlbfill_MEM;
-reg  [ 5:0] csr_ecode_MEM;
+reg  inst_invtlb_MEM;
+reg  [4:0] invtlb_op_MEM;
+reg  [5:0] csr_ecode_MEM;
 reg  has_int_MEM;
 reg  csr_we_MEM;
+wire csr_we_MEM_m;
+
+reg  tlb_refetch_flag_MEM;
+reg  inst_need_refetch_MEM;
 
 // exp10: mul
 reg  [31:0] mul_result_MEM;
@@ -1762,6 +1825,8 @@ always @(posedge aclk) begin
         inst_st_w_MEM    <= 1'b0;
         inst_st_b_MEM    <= 1'b0;
         inst_st_h_MEM    <= 1'b0; // exp11: add load/store instructions
+        tlb_refetch_flag_MEM <= 1'b0;
+        inst_need_refetch_MEM <= 1'b0;
     end
     else if(pipe_tonext_valid[2]) begin
         pc_MEM           <= pc_EX;
@@ -1787,9 +1852,12 @@ always @(posedge aclk) begin
         inst_rdcntid_w_MEM <= inst_rdcntid_w_EX;
         inst_rdcntvl_w_MEM <= inst_rdcntvl_w_EX;
         inst_rdcntvh_w_MEM <= inst_rdcntvh_w_EX;
+        inst_tlbsrch_MEM <= inst_tlbsrch_EX;
         inst_tlbrd_MEM   <= inst_tlbrd_EX;
         inst_tlbwr_MEM   <= inst_tlbwr_EX;
         inst_tlbfill_MEM <= inst_tlbfill_EX;
+        inst_invtlb_MEM  <= inst_invtlb_EX;
+        invtlb_op_MEM    <= invtlb_op_EX;
         ex_MEM           <= ex_EX_m;
         csr_value_MEM    <= csr_value_EX;
         csr_ecode_MEM    <= csr_ecode_EX_m;
@@ -1799,6 +1867,8 @@ always @(posedge aclk) begin
 // exp10: mul
         mul_result_MEM   <= mul_result;
         mul_inst_MEM     <= mul_inst_EX;
+        tlb_refetch_flag_MEM <= tlb_refetch_flag_EX;
+        inst_need_refetch_MEM <= inst_need_refetch_EX;
     end
 end
 
@@ -1810,10 +1880,14 @@ always @(posedge aclk) begin
     end
     else if(pipe_tonext_valid[2]) begin
         gr_we_MEM        <= gr_we_EX_m;
-        csr_we_MEM       <= csr_we_EX;
-        mem_we_MEM       <= mem_we_EX;
+        csr_we_MEM       <= csr_we_EX_m;
+        mem_we_MEM       <= mem_we_EX_m;
     end
 end
+
+assign gr_we_MEM_m = gr_we_MEM && ~ex_MEM && ~inst_need_refetch_MEM;
+assign mem_we_MEM_m = mem_we_MEM && ~ex_MEM && ~inst_need_refetch_MEM;
+assign csr_we_MEM_m = csr_we_MEM && ~ex_MEM && ~inst_need_refetch_MEM;
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1892,7 +1966,7 @@ assign data_sram_addr  = alu_result_MEM;
 assign data_sram_wstrb    = (inst_st_b_MEM ? (4'h1 << data_sram_addr[1:0]) :
                           inst_st_h_MEM ? (4'h3 << data_sram_addr[1:0]) :
                                           4'hf) 
-                        & {4{mem_we_MEM && pipe_valid[3] && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB}}; // If has exception in the pipeline, do not write to data_sram
+                        & {4{mem_we_MEM_m && pipe_valid[3] && ~has_int_MEM && ~ex_MEM && ~has_int_WB && ~ex_WB}}; // If has exception in the pipeline, do not write to data_sram
 assign data_sram_wr = |data_sram_wstrb;
 assign data_sram_size = inst_ld_h_MEM || inst_ld_hu_MEM || inst_st_h_MEM ? 2'b01 :
                         inst_ld_b_MEM || inst_ld_bu_MEM || inst_st_b_MEM ? 2'b00 :
@@ -2051,6 +2125,9 @@ reg         inst_tlbwr_WB;
 reg         inst_tlbfill_WB;
 reg         ex_WB;
 
+reg tlb_refetch_flag_WB;
+reg inst_need_refetch_WB;
+
 reg  [ 5:0] csr_ecode_WB;
 reg  has_int_WB;
 reg  [31:0] rj_value_WB;
@@ -2058,9 +2135,11 @@ reg  [31:0] rkd_value_WB;
 reg         res_from_mem_WB;
 reg         res_from_csr_WB; // exp12: add csr instructions
 reg         gr_we_WB;
+wire        gr_we_WB_m;
 reg  [ 4:0] dest_WB;
 reg  [13:0] csr_dest_WB;
 reg         csr_we_WB;
+wire        csr_we_WB_m;
 
 // exp10: mul
 reg  [31:0] mul_result_WB;
@@ -2077,6 +2156,8 @@ always @(posedge aclk) begin
         res_from_csr_WB <= 1'b0;
         dest_WB         <= 5'h0;
         csr_dest_WB     <= 14'h0;
+        tlb_refetch_flag_WB <= 1'b0;
+        inst_need_refetch_WB <= 1'b0;
     end
     else if(pipe_tonext_valid[3]) begin
         pc_WB           <= pc_MEM;
@@ -2106,6 +2187,8 @@ always @(posedge aclk) begin
         inst_tlbrd_WB   <= inst_tlbrd_MEM;
         inst_tlbwr_WB   <= inst_tlbwr_MEM;
         inst_tlbfill_WB <= inst_tlbfill_MEM;
+        tlb_refetch_flag_WB <= tlb_refetch_flag_MEM;
+        inst_need_refetch_WB <= inst_need_refetch_MEM;
         csr_value_WB    <= csr_value_MEM;
         csr_ecode_WB    <= csr_ecode_MEM;
         ex_WB           <= ex_MEM;
@@ -2124,13 +2207,16 @@ always @(posedge aclk) begin
     end
     else if (flush) begin
         gr_we_WB        <= 1'b0;
-        csr_we_WB          <= 1'b0;
+        csr_we_WB       <= 1'b0;
     end
     else if(pipe_tonext_valid[3]) begin
-        gr_we_WB        <= gr_we_MEM;
-        csr_we_WB       <= csr_we_MEM;
+        gr_we_WB        <= gr_we_MEM_m;
+        csr_we_WB       <= csr_we_MEM_m;
     end
 end
+
+assign gr_we_WB_m = gr_we_WB && ~ex_WB && ~inst_need_refetch_WB;
+assign csr_we_WB_m = csr_we_WB && ~ex_WB && ~inst_need_refetch_WB;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // WB stage
@@ -2144,7 +2230,7 @@ assign final_result = res_from_mem_WB ? mem_result_WB :
                       inst_rdcntvh_w_WB || inst_rdcntvl_w_WB ? cnt_result_WB :
                       alu_result_WB;
 
-assign rf_we    = gr_we_WB && pipe_valid[4];
+assign rf_we    = gr_we_WB_m && pipe_valid[4];
 assign rf_waddr = dest_WB;
 assign rf_wdata = final_result;
 
