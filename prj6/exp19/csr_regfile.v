@@ -22,6 +22,7 @@ module csr_regfile(
     input         wb_ex,
     input  [ 5:0] wb_ecode,
     input  [ 8:0] wb_esubcode,
+    input         ex_from_IF,
     output [ 9:0] asid_asid,
     output [18:0] tlbehi_vppn,
     output [ 3:0] tlbidx_index,
@@ -117,6 +118,12 @@ module csr_regfile(
 
 `define ECODE_ADE 6'h8
 `define ECODE_ALE 6'h9
+`define ECODE_TLBR 6'h3f
+`define ECODE_PIL 6'h01
+`define ECODE_PIS 6'h02
+`define ECODE_PIF 6'h03
+`define ECODE_PME 6'h04
+`define ECODE_PPI 6'h07
 `define ESUBCODE_ADEF 9'h0
 // wire [31:0] crmd;
 // wire [31:0] prmd;
@@ -223,10 +230,20 @@ always @(posedge clk) begin
         csr_crmd_datf <= 2'b0;
         csr_crmd_datm <= 2'b0;
     end
-    else if (wb_ex)
+    else if (wb_ex) begin
         csr_crmd_ie <= 1'b0;
-    else if (ertn_flush)
+        if (wb_ecode == 6'h3f) begin
+			csr_crmd_da <= 1'd1;
+			csr_crmd_pg <= 1'd0;
+		end
+    end
+    else if (ertn_flush) begin
         csr_crmd_ie <= csr_prmd_pie;
+        if (csr_estat_ecode == 6'h3f) begin
+			csr_crmd_da <= 1'd0;
+			csr_crmd_pg <= 1'd1;
+		end
+    end
     else if (csr_we && csr_waddr==`CSR_CRMD) begin
         csr_crmd_ie <= csr_wmask[`CSR_CRMD_IE] & csr_wdata[`CSR_CRMD_IE]
                     | ~csr_wmask[`CSR_CRMD_IE] & csr_crmd_ie;
@@ -303,11 +320,11 @@ always @(posedge clk) begin
 end
 
 // BADV
-assign wb_ex_addr_err = wb_ecode==`ECODE_ADE || wb_ecode==`ECODE_ALE;
+assign wb_ex_addr_err = wb_ecode==`ECODE_ADE || wb_ecode==`ECODE_ALE || wb_ecode ==`ECODE_TLBR || wb_ecode ==`ECODE_PIL || wb_ecode ==`ECODE_PIS || wb_ecode ==`ECODE_PIF || wb_ecode ==`ECODE_PME || wb_ecode ==`ECODE_PPI;
 always @(posedge clk) begin
     if (wb_ex && wb_ex_addr_err)
         csr_badv_vaddr <= (wb_ecode==`ECODE_ADE &&
-                           wb_esubcode==`ESUBCODE_ADEF) ? wb_pc : wb_vaddr;
+                           wb_esubcode==`ESUBCODE_ADEF || ex_from_IF) ? wb_pc : wb_vaddr;
 end
 
 // EENTRY

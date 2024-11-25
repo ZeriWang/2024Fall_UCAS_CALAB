@@ -423,6 +423,7 @@ wire        data_flag_dmw1_hit;
 wire        data_flag_tlb_hit;
 wire [ 5:0] ecode_MMU_preIF;
 reg  [ 5:0] ecode_MMU_IF;
+wire        ex_from_IF;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // pipeline signals
@@ -499,6 +500,7 @@ end
 assign pc_unalign = nextpc[1:0] != 2'b00;
 assign ex_IF     = ecode_MMU_IF != 6'h00;
 assign csr_ecode = ecode_MMU_IF;
+assign ex_from_IF = ex_IF;
 
 // store the first instruction in the pipeline when IF stays more than 1 cycle
 
@@ -667,6 +669,7 @@ reg         ex_ID;
 reg         inst_need_refetch_ID;
 reg  [ 5:0] csr_ecode_ID; // This signal is used to get the csr_ecode passed to ID stage
 wire [ 5:0] csr_ecode_ID_m; // This signal is used to get the csr_ecode in ID stage
+reg         ex_from_IF_ID;
 
 always @(posedge aclk) begin
     if (reset) begin
@@ -678,6 +681,7 @@ always @(posedge aclk) begin
         ex_ID   <= ex_IF;
         inst_need_refetch_ID <= inst_need_refetch;
         csr_ecode_ID    <= csr_ecode;
+        ex_from_IF_ID   <= ex_from_IF;
     end
 end
 
@@ -1165,6 +1169,7 @@ csr_regfile u_csr_regfile(
     .wb_ex  (csr_wbex ),
     .wb_ecode  (csr_ecode_WB),
     .wb_esubcode  (9'h0),
+    .ex_from_IF (ex_from_IF_WB),
     .asid_asid (asid_asid),
     .tlbehi_vppn (tlbehi_vppn),
     .tlbidx_index (tlbidx_index),
@@ -1509,6 +1514,7 @@ reg  [31:0] rkd_value_EX;
 reg  [31:0] csr_value_EX;
 reg         csr_we_EX;
 wire        csr_we_EX_m;
+reg         ex_from_IF_EX;
 
 always @(posedge aclk) begin
     if (reset) begin
@@ -1589,6 +1595,7 @@ always @(posedge aclk) begin
         inst_syscall_EX <= inst_syscall;
         inst_break_EX   <= inst_break;
         csr_ecode_EX    <= csr_ecode_ID_m;
+        ex_from_IF_EX   <= ex_from_IF_ID;
     end
 end
 
@@ -1832,6 +1839,7 @@ reg         inst_rdcntid_w_MEM;
 reg         inst_rdcntvl_w_MEM;
 reg         inst_rdcntvh_w_MEM;
 reg         ex_MEM;
+reg         ex_from_IF_MEM;
 
 reg  [31:0] rj_value_MEM;
 reg  [31:0] rkd_value_MEM;
@@ -1911,6 +1919,7 @@ always @(posedge aclk) begin
         inst_invtlb_MEM  <= inst_invtlb_EX;
         invtlb_op_MEM    <= invtlb_op_EX;
         ex_MEM           <= ex_EX_m;
+        ex_from_IF_MEM   <= ex_from_IF_EX;
         csr_value_MEM    <= csr_value_EX;
         csr_ecode_MEM    <= csr_ecode_EX_m;
         has_int_MEM      <= has_int;
@@ -2203,6 +2212,7 @@ reg         inst_tlbrd_WB;
 reg         inst_tlbwr_WB;
 reg         inst_tlbfill_WB;
 reg         ex_WB;
+reg         ex_from_IF_WB;
 
 reg tlb_refetch_flag_WB;
 reg inst_need_refetch_WB;
@@ -2271,6 +2281,7 @@ always @(posedge aclk) begin
         csr_value_WB    <= csr_value_MEM;
         csr_ecode_WB    <= csr_ecode_MEM_m;
         ex_WB           <= ex_MEM_m;
+        ex_from_IF_WB   <= ex_from_IF_MEM;
         has_int_WB      <= has_int_MEM;
         rj_value_WB     <= rj_value_MEM;
         rkd_value_WB    <= rkd_value_MEM;
