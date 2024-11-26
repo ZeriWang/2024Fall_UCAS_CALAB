@@ -1170,6 +1170,8 @@ csr_regfile u_csr_regfile(
     .wb_ecode  (csr_ecode_WB),
     .wb_esubcode  (9'h0),
     .ex_from_IF (ex_from_IF_WB),
+    .tlb_ex_WB (tlb_ex_WB),
+    .estat_ecode (estat_ecode),
     .asid_asid (asid_asid),
     .tlbehi_vppn (tlbehi_vppn),
     .tlbidx_index (tlbidx_index),
@@ -1203,7 +1205,7 @@ assign csr_ertn  = inst_ertn;
 assign csr_ecode_ID_m = csr_ecode_ID != 6'b0 ? csr_ecode_ID 
                                             : ({6{inst_syscall  }} & 6'hb 
                                             |  {6{inst_break    }} & 6'hc
-                                            |  {6{inst_not_exist || invtlb_op_not_exist}} & 6'hd);
+                                            |  {6{inst_not_exist || invtlb_op_not_exist}} & 6'hd) & {6{~inst_need_refetch_ID}};
 // assign csr_wdata = rkd_value_WB;
 // assign csr_we    = {32{inst_csrwr_WB}} | {32{inst_csrxchg_WB}} & rj_value_WB;
 //csr[waddr] <= ~we & csr[waddr] | we & wdata;
@@ -1216,6 +1218,7 @@ assign csr_value = df_csrwr_EX ? ~({32{inst_csrwr_EX}} | {32{inst_csrxchg_EX}} &
                    csr_rdata; 
 
 // TLB part
+wire [ 5:0] estat_ecode;
 wire [ 9:0] asid_asid;
 wire [18:0] tlbehi_vppn;
 wire [ 3:0] tlbidx_index;
@@ -1301,6 +1304,8 @@ wire        w_v1;
 wire        invtlb_valid;
 wire [ 4:0] invtlb_op_in;
 
+wire        tlb_ex_WB;
+
 tlb u_tlb(
     .clk(aclk),
     // search port 0 (for fetch)
@@ -1317,7 +1322,7 @@ tlb u_tlb(
     .s0_v(s0_v),
     // search port 1 (for load/store)
     .s1_vppn(s1_vppn),
-    .s1_va_bit12(data_sram_addr[12]),
+    .s1_va_bit12(data_sram_vaddr[12]),
     .s1_asid(s1_asid),
     .s1_found(s1_found),
     .s1_index(s1_index),
@@ -1368,7 +1373,8 @@ tlb u_tlb(
 );
 
 assign s1_vppn = inst_tlbsrch_MEM ? tlbehi_vppn : // for tlbsrch
-                                    rkd_value_MEM[31:13]; //for invtlb
+                inst_invtlb_MEM ? rkd_value_MEM[31:13] : //for invtlb
+                data_sram_vaddr[31:13]; // for other instructions
 assign s1_asid = invtlb_valid ? rj_value_MEM[9:0] : // for invtlb
                                 asid_asid; // for other instructions
 
@@ -1381,17 +1387,23 @@ assign tlbidx_ne_wdata = (inst_tlbsrch_MEM && !s1_found) | (inst_tlbrd_WB) & !r_
 
 assign tlbidx_ps_wdata = (inst_tlbrd_WB && r_e) ? r_ps : 6'b0;
 
+assign tlb_ex_WB = (csr_ecode_WB == 6'h3f || csr_ecode_WB == 6'h1 || csr_ecode_WB == 6'h2 
+                || csr_ecode_WB == 6'h3  || csr_ecode_WB == 6'h4 || csr_ecode_WB == 6'h7) && !inst_need_refetch_WB;
 assign tlbe_we = inst_tlbrd_WB;
 assign asid_asid_we = inst_tlbrd_WB;
 assign r_index = tlbidx_index;
 assign asid_asid_wdata = (inst_tlbrd_WB && !r_e) ? 10'b0 : r_asid;
-assign tlbehi_vppn_wdata = (inst_tlbrd_WB && r_e) ? r_vppn : 19'b0;
+assign tlbehi_vppn_wdata = (inst_tlbrd_WB && r_e) ? r_vppn : 
+                           (tlb_ex_WB && ex_from_IF_WB) ? pc_WB[31:13] :
+                           (tlb_ex_WB && !ex_from_IF_WB) ? alu_result_WB[31:13] :
+                            19'b0;
 assign tlbelo0_wdata = (inst_tlbrd_WB && r_e) ? {4'b0, r_ppn0, 1'b0, r_g, r_mat0, r_plv0, r_d0, r_v0} : 32'b0;
 assign tlbelo1_wdata = (inst_tlbrd_WB && r_e) ? {4'b0, r_ppn1, 1'b0, r_g, r_mat1, r_plv1, r_d1, r_v1} : 32'b0;
 
 assign tlb_we = inst_tlbwr_WB || inst_tlbfill_WB;
 assign w_index = inst_tlbwr_WB ? tlbidx_index : tlbfill_dest;
-assign w_e = !tlbidx_ne;
+assign w_e = (inst_tlbwr_WB || inst_tlbfill_WB) && estat_ecode != 6'h3f && !tlbidx_ne 
+          || (inst_tlbfill_WB || inst_tlbwr_WB) && estat_ecode == 6'h3f;
 assign w_vppn = tlbehi_vppn;
 assign w_ps = tlbidx_ps;
 assign w_asid = asid_asid;
@@ -1780,7 +1792,7 @@ assign addr_unalign = (inst_ld_h_EX || inst_ld_hu_EX || inst_st_h_EX) && alu_res
                    || (inst_ld_w_EX || inst_st_w_EX) && alu_result[1:0] != 2'b0;
 
 assign csr_ecode_EX_m = csr_ecode_EX != 6'b0 ? csr_ecode_EX 
-                                            : {6{addr_unalign}} & 6'h9;
+                                            : {6{addr_unalign}} & 6'h9 & {6{~inst_need_refetch_EX}};
 assign ex_EX_m = ex_EX | addr_unalign;
 
 reg div_out_valid;
@@ -2017,7 +2029,7 @@ end
 wire         memory_access;
 
 assign memory_access = (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM 
-                    || inst_ld_hu_MEM || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) & ~ex_MEM_m;
+                    || inst_ld_hu_MEM || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) & ~ex_MEM_m & ~inst_need_refetch_MEM;
 
 assign data_sram_req   = memory_access
                        && pipe_valid[3] && ~has_int_MEM && ~ex_MEM_m && ~has_int_WB && ~ex_WB
@@ -2163,18 +2175,19 @@ always @(posedge aclk) begin
 end
 
 // exp19
-wire [5:0] csr_ecode_MEM_m = csr_ecode_MEM != 6'd0                                       ? csr_ecode_MEM :
-                       (!(inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM || inst_ld_hu_MEM 
-                       || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) 
-                       || !csr_crmd_pg || data_flag_dmw0_hit || data_flag_dmw1_hit) ? 6'h00        :
-                       ! s1_found                                                   ? 6'h3F        :  // TLBR
-                       ! s1_v && (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM || inst_ld_hu_MEM)
-                                                                                    ? 6'h01	       :  // PIL
-                       ! s1_v && (inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM)  ? 6'h02        :  // PIH
-                       ! data_flag_tlb_hit                                          ? 6'h07	       :  // PPI
-                       ! s1_d && (inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM)  ? 6'h04        :  // PME
-                       6'h00
-                       ;
+wire [5:0] csr_ecode_MEM_m = inst_need_refetch_MEM ? 6'h00 :
+                             csr_ecode_MEM != 6'd0                                       ? csr_ecode_MEM :
+                            (!(inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM || inst_ld_hu_MEM 
+                            || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) 
+                            || !csr_crmd_pg || data_flag_dmw0_hit || data_flag_dmw1_hit) ? 6'h00        :
+                            ! s1_found                                                   ? 6'h3F        :  // TLBR
+                            ! s1_v && (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM || inst_ld_hu_MEM)
+                                                                                            ? 6'h01	       :  // PIL
+                            ! s1_v && (inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM)  ? 6'h02        :  // PIH
+                            ! data_flag_tlb_hit                                          ? 6'h07	       :  // PPI
+                            ! s1_d && (inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM)  ? 6'h04        :  // PME
+                            6'h00
+                            ;
 
 wire ex_MEM_m = ex_MEM | csr_ecode_MEM_m != 6'd0;
 
@@ -2247,6 +2260,8 @@ always @(posedge aclk) begin
         csr_dest_WB     <= 14'h0;
         tlb_refetch_flag_WB <= 1'b0;
         inst_need_refetch_WB <= 1'b0;
+        ex_WB           <= 1'b0;
+        has_int_WB      <= 1'b0;
     end
     else if(pipe_tonext_valid[3]) begin
         pc_WB           <= pc_MEM;

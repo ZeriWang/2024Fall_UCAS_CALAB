@@ -23,6 +23,8 @@ module csr_regfile(
     input  [ 5:0] wb_ecode,
     input  [ 8:0] wb_esubcode,
     input         ex_from_IF,
+    input         tlb_ex_WB,
+    output [ 5:0] estat_ecode,
     output [ 9:0] asid_asid,
     output [18:0] tlbehi_vppn,
     output [ 3:0] tlbidx_index,
@@ -320,7 +322,7 @@ always @(posedge clk) begin
 end
 
 // BADV
-assign wb_ex_addr_err = wb_ecode==`ECODE_ADE || wb_ecode==`ECODE_ALE || wb_ecode ==`ECODE_TLBR || wb_ecode ==`ECODE_PIL || wb_ecode ==`ECODE_PIS || wb_ecode ==`ECODE_PIF || wb_ecode ==`ECODE_PME || wb_ecode ==`ECODE_PPI;
+assign wb_ex_addr_err = wb_ecode==`ECODE_ADE || wb_ecode==`ECODE_ALE || tlb_ex_WB;
 always @(posedge clk) begin
     if (wb_ex && wb_ex_addr_err)
         csr_badv_vaddr <= (wb_ecode==`ECODE_ADE &&
@@ -434,7 +436,7 @@ assign csr_asid_asidbits = 8'd10;
 
 // TLBEHI
 always @(posedge clk) begin
-    if (tlbe_we)
+    if (tlbe_we || tlb_ex_WB)
         csr_tlbehi_vppn <= tlbehi_vppn_wdata;
     else if (csr_we && csr_waddr==`CSR_TLBEHI)
         csr_tlbehi_vppn <= csr_wmask[`CSR_TLBEHI_VPPN] & csr_wdata[`CSR_TLBEHI_VPPN]
@@ -586,6 +588,7 @@ assign tlbr_entry = {csr_tlbrentry_pa, 6'b0};
 
 
 // TLB needed
+assign estat_ecode = csr_estat_ecode;
 assign asid_asid = csr_asid_asid;
 assign tlbehi_vppn = csr_tlbehi_vppn;
 assign tlbidx_index = csr_tlbidx_index;
