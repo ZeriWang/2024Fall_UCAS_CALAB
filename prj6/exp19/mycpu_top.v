@@ -552,7 +552,7 @@ reg  pipe_ready_go_preIF_reg;
 reg [31:0] br_target_reg;
 reg  br_taken_valid;
 
-assign pipe_ready_go_preIF = inst_sram_addr_ok || ecode_MMU_preIF != 6'h00; 
+assign pipe_ready_go_preIF = inst_sram_addr_ok; 
 
 always @(posedge aclk) begin
     if (reset) begin
@@ -610,8 +610,7 @@ assign nextpc       = inst_need_refetch_WB ? pc_WB :
 assign inst_sram_req   = pipe_allowin[0] && 
                         !((ex_WB || has_int_WB) && br_taken) && 
                         (data_write_ok || data_rdata_ok || !(memory_access & !inst_sram_using)) && 
-                        !inst_raddr_ok &&
-                        ecode_MMU_preIF == 6'h00
+                        !inst_raddr_ok
                         ;  // instruction memory enable
 assign inst_sram_wr    = 1'b0;  // instruction memory write enable
 assign inst_sram_wstrb = 4'b0;  // instruction memory strb
@@ -655,7 +654,7 @@ always @(posedge aclk) begin
     end
 end
 
-assign pipe_ready_go[0] = pipe_valid[0] && ((inst_rdata_ok || inst_IF_reg_valid) && !cancel_next_inst || ecode_MMU_IF != 6'h00);
+assign pipe_ready_go[0] = pipe_valid[0] && ((inst_rdata_ok || inst_IF_reg_valid) && !cancel_next_inst);
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
