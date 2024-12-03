@@ -212,7 +212,7 @@ assign way0_hit = tagv_rdata[0][0] && (tagv_rdata[0][20:1] == reg_tag);
 assign way1_hit = tagv_rdata[1][0] && (tagv_rdata[1][20:1] == reg_tag);
 assign cache_hit = way0_hit || way1_hit;
 assign hit_write = cache_hit && reg_op;
-assign hit_write_hazard = valid && !op && (current_state == LOOKUP && hit_write && index == reg_index && offset == reg_offset 
+assign hit_write_hazard = valid && !op && (current_state == LOOKUP && hit_write && index == reg_index && offset[3:2] == reg_offset[3:2] 
                                         || wbuf_current_state == WBUF_WRITE && offset[3:2] == reg_offset[3:2]);
 
 // Data Select
@@ -297,7 +297,7 @@ generate
             assign data_bank_wstrb[i][j] = wbuf_current_state == WBUF_WRITE ?          hitwr_wstrb : 
                                            reg_op && reg_offset[3:2] == ret_data_num ? reg_wstrb : 
                                                                                        4'b1111;
-            assign data_bank_addr[i][j]  = current_state == IDLE ? index : reg_index;
+            assign data_bank_addr[i][j]  = current_state == IDLE || current_state == LOOKUP ? index : reg_index;
             assign data_bank_wdata[i][j] = wbuf_current_state == WBUF_WRITE ?          hitwr_wdata : 
                                            reg_op && reg_offset[3:2] == ret_data_num ? reg_wdata :
                                                                                        ret_data;
