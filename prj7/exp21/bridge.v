@@ -53,6 +53,7 @@ module bridge(
     output wire [31:0] inst_sram_rdata,
     output wire        inst_sram_addr_ok,
     output wire        inst_sram_data_ok,
+    input  wire [ 2:0] icache_rd_type,  // exp21
     // data sram interface
     input  wire        data_sram_req,   // chip select signal of data sram 
     input  wire        data_sram_wr,
@@ -75,7 +76,7 @@ module bridge(
 
 assign arid = (!memory_access | (memory_access && (data_write_ok | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
 assign araddr = (arid == 4'b0) ? inst_sram_addr : data_sram_addr; //读地址
-assign arlen = 8'b00000000; //固定为0
+assign arlen = arid == 4'b0 ? {2{icache_rd_type[2]}} : 8'b00000000; // exp21
 assign arsize = (arid == 4'b0) ? inst_sram_size : data_sram_size; //读大小
 assign arburst = 2'b01; //固定为01
 assign arlock = 2'b00; //固定为0
@@ -106,7 +107,7 @@ assign bready = data_wdata_ok; // 写数据完成二次握手
 
 assign inst_sram_rdata = rdata; //指令码
 assign inst_sram_addr_ok = arvalid & arready & (arid == 4'b0); //指令地址有效
-assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok; //指令数据有效
+assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok & rlast; //指令数据有效
 
 assign data_sram_rdata = {32{arid == 4'b1}} & rdata; //读数据
 assign data_sram_addr_ok = arvalid & arready & (arid == 4'b1) & ~data_sram_wr | awvalid & awready & (arid == 4'b1) & data_sram_wr & ~inst_sram_using; //数据地址有效

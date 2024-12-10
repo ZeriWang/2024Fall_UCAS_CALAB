@@ -95,15 +95,16 @@ bridge u_bridge(
 
     //SRAM interface
     // inst sram interface
-    .inst_sram_req(inst_sram_req),
+    .inst_sram_req(icache_rd_req),  // exp21: inst_sram_req => icache_rd_req
     .inst_sram_wr(inst_sram_wr),
     .inst_sram_size(inst_sram_size),
     .inst_sram_wstrb(inst_sram_wstrb),
-    .inst_sram_addr(inst_sram_addr),
+    .inst_sram_addr(icache_rd_addr),
     .inst_sram_wdata(inst_sram_wdata),
     .inst_sram_rdata(inst_sram_rdata),
     .inst_sram_addr_ok(inst_sram_addr_ok),
     .inst_sram_data_ok(inst_sram_data_ok),
+    .icache_rd_type(icache_rd_type),  // exp21: icache_rd_type
     // data sram interface
     .data_sram_req(data_sram_req),
     .data_sram_wr(data_sram_wr),
@@ -475,6 +476,83 @@ end
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ICache
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+wire         icache_valid;
+wire         icache_op;
+wire [  7:0] icache_index;
+wire [ 19:0] icache_tag;
+wire [  3:0] icache_offset;
+wire [  3:0] icache_wstrb;
+wire [ 31:0] icache_wdata;
+wire         icache_addr_ok;
+wire         icache_data_ok;
+wire [ 31:0] icache_rdata;
+
+wire         icache_rd_req;
+wire [  2:0] icache_rd_type;
+wire [ 31:0] icache_rd_addr;
+wire         icache_rd_rdy;
+wire         icache_ret_valid;
+wire         icache_ret_last;
+wire [ 31:0] icache_ret_data;
+
+wire         icache_wr_req;
+wire [  2:0] icache_wr_type;
+wire [ 31:0] icache_wr_addr;
+wire [  3:0] icache_wr_wstrb;
+wire [127:0] icache_wr_data;
+wire         icache_wr_rdy;
+
+assign icache_valid     = inst_sram_req;
+assign icache_op        = inst_sram_wr;
+assign icache_index     = inst_sram_addr[11: 4];
+assign icache_tag       = inst_sram_addr[31:12];
+assign icache_offset    = inst_sram_addr[ 3: 0];
+assign icache_wstrb     = inst_sram_wstrb;
+assign icache_wdata     = inst_sram_wdata;
+
+assign icache_rd_rdy    = arready && arid == 4'b0;
+assign icache_ret_valid = rvaild  &&  rid == 4'b0;
+assign icache_ret_last  = rlast   &&  rid == 4'b0;
+assign icache_ret_data  = inst_sram_rdata;
+
+assign icache_wr_rdy    = 1'b1;
+
+cache icache(
+    .clk          (aclk),
+    .reset        (reset),
+
+    // interface to CPU
+    .valid        (icache_valid),
+    .op           (icache_op),
+    .index        (icache_index),
+    .tag          (icache_tag),
+    .offset       (icache_offset),
+    .wstrb        (icache_wstrb),
+    .wdata        (icache_wdata),
+    .addr_ok      (icache_addr_ok),
+    .data_ok      (icache_data_ok),
+    .rdata        (icache_rdata),
+
+    // interface to bridge
+    .rd_req       (icache_rd_req),
+    .rd_type      (icache_rd_type),
+    .rd_addr      (icache_rd_addr),
+    .rd_rdy       (icache_rd_rdy),
+    .ret_valid    (icache_ret_valid),
+    .ret_last     (icache_ret_last),
+    .ret_data     (icache_ret_data),
+
+    .wr_req       (icache_wr_req),
+    .wr_type      (icache_wr_type),
+    .wr_addr      (icache_wr_addr),
+    .wr_wstrb     (icache_wr_wstrb),
+    .wr_data      (icache_wr_data),
+    .wr_rdy       (icache_wr_rdy)
+)
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // IF stage
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 always @(posedge aclk) begin
@@ -516,7 +594,7 @@ always @(posedge aclk) begin
     else if (pipe_ready_go_preIF) begin
         first_IF <= 1'b1;
     end
-    else if (inst_sram_data_ok) begin
+    else if (icache_data_ok) begin // exp21: inst_sram_data_ok -> icache_data_ok
         first_IF <= 1'b0;
     end
 end
@@ -525,8 +603,8 @@ always @(posedge aclk) begin
     if (reset) begin
         inst_IF_reg <= 32'h0;
     end
-    else if (inst_sram_data_ok) begin
-        inst_IF_reg <= (inst_sram_rdata & {32{~(br_taken | br_taken_valid)}}) | ({32{br_taken | br_taken_valid}} & 32'h03400000);
+    else if (icache_data_ok) begin // exp21: inst_sram_data_ok -> icache_data_ok
+        inst_IF_reg <= (icache_rdata & {32{~(br_taken | br_taken_valid)}}) | ({32{br_taken | br_taken_valid}} & 32'h03400000);
     end
 end
 
@@ -543,7 +621,7 @@ always @(posedge aclk) begin
         inst_IF_reg_valid <= 1'b0;
 end
 
-assign inst = first_IF || inst_sram_data_ok ? (inst_sram_rdata & {32{~(br_taken | br_taken_valid)}}) |
+assign inst = first_IF || icache_data_ok ? (icache_rdata & {32{~(br_taken | br_taken_valid)}}) |  // exp21
                                              ({32{br_taken | br_taken_valid}} & 32'h03400000) : inst_IF_reg;
 
 // pre-IF stage
@@ -552,7 +630,7 @@ reg  pipe_ready_go_preIF_reg;
 reg [31:0] br_target_reg;
 reg  br_taken_valid;
 
-assign pipe_ready_go_preIF = inst_sram_addr_ok; 
+assign pipe_ready_go_preIF = icache_addr_ok; 
 
 always @(posedge aclk) begin
     if (reset) begin
@@ -570,7 +648,7 @@ always @(posedge aclk) begin
     if (reset) begin
         cancel_next_inst <= 1'b0;
     end
-    else if (br_taken && inst_sram_addr_ok) begin
+    else if (br_taken && icache_addr_ok) begin  // exp21: inst_sram_addr_ok -> icache_addr_ok
         cancel_next_inst <= 1'b1; // inst_sram gets addr_ok when cancel signal comes, cancel the next instruction
     end
     else if (br_taken && !pipe_allowin[0] && !pipe_ready_go[0]) begin
@@ -588,7 +666,7 @@ always @(posedge aclk) begin
     else if (br_taken) begin
         br_taken_valid <= 1'b1;
     end
-    else if (inst_sram_addr_ok) begin
+    else if (icache_addr_ok) begin
         br_taken_valid <= 1'b0;
     end
 end
@@ -646,7 +724,7 @@ always @(posedge aclk) begin
     if (reset) begin
         inst_rdata_ok <= 1'b0;
     end
-    else if (inst_sram_data_ok) begin
+    else if (icache_data_ok) begin  // exp21: inst_sram_data_ok -> icache_data_ok
         inst_rdata_ok <= 1'b1;
     end
     else if (pipe_ready_go[0]) begin
@@ -2093,7 +2171,7 @@ always @(posedge aclk)begin
     else if(inst_sram_using == 1'b0 & inst_sram_req) begin
         inst_sram_using <= 1'b1;
     end
-    else if(inst_sram_using == 1'b1 & inst_sram_data_ok) begin
+    else if(inst_sram_using == 1'b1 & icache_data_ok) begin // exp21: inst_sram_data_ok -> icache_data_ok
         inst_sram_using <= 1'b0;
     end
 end
@@ -2165,7 +2243,7 @@ always @(posedge aclk) begin
     if(reset) begin
         inst_raddr_ok <= 1'b0;
     end
-    else if(inst_sram_addr_ok) begin
+    else if(icache_addr_ok) begin // exp21: inst_sram_addr_ok -> icache_addr_ok
         inst_raddr_ok <= 1'b1;
     end
     else if(pipe_ready_go[0]) begin
