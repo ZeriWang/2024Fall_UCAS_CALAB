@@ -12,6 +12,7 @@ module cache (
     output         addr_ok,
     output         data_ok,
     output [31:0]  rdata,
+    output         cache_recv_addr,
     // interface to axi
     output         rd_req,
     output [ 2:0]  rd_type, // 0: byte, 1: half, 2: word, 4: cache line
@@ -214,6 +215,7 @@ assign cache_hit = way0_hit || way1_hit;
 assign hit_write = cache_hit && reg_op;
 assign hit_write_hazard = valid && !op && (current_state == LOOKUP && hit_write && index == reg_index && offset[3:2] == reg_offset[3:2] 
                                         || wbuf_current_state == WBUF_WRITE && offset[3:2] == reg_offset[3:2]);
+assign cache_recv_addr = current_state == LOOKUP;
 
 // Data Select
 wire [ 31:0] way0_load_word, way1_load_word;

@@ -76,7 +76,7 @@ module bridge(
 
 assign arid = (!memory_access | (memory_access && (data_write_ok | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
 assign araddr = (arid == 4'b0) ? inst_sram_addr : data_sram_addr; //读地址
-assign arlen = arid == 4'b0 ? {2{icache_rd_type[2]}} : 8'b00000000; // exp21
+assign arlen  = (arid == 4'b0) ? {2{icache_rd_type[2]}} : 8'b00000000; // exp21
 assign arsize = (arid == 4'b0) ? inst_sram_size : data_sram_size; //读大小
 assign arburst = 2'b01; //固定为01
 assign arlock = 2'b00; //固定为0
