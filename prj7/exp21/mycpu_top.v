@@ -1813,6 +1813,9 @@ always @(posedge aclk) begin
     if(reset) begin
         s_div_in_EX <= 1'b0;
     end
+    else if(flush) begin
+        s_div_in_EX <= 1'b0;
+    end
     else if((inst_div_w || inst_mod_w) && pipe_tonext_valid[1] && (!br_taken)) begin
         s_div_in_EX <= 1'b1;
     end
@@ -1824,6 +1827,9 @@ end
 reg u_div_in_EX;
 always @(posedge aclk) begin
     if(reset) begin
+        u_div_in_EX <= 1'b0;
+    end
+    else if(flush) begin
         u_div_in_EX <= 1'b0;
     end
     else if((inst_div_wu || inst_mod_wu) && pipe_tonext_valid[1] && (!br_taken)) begin
@@ -1842,6 +1848,9 @@ always @(posedge aclk) begin
     if (reset) begin
         div_executing <= 1'b0;
     end
+    else if(flush) begin
+        div_executing <= 1'b0;
+    end
     else if(div_inst_EX && ((s_div_in_EX && s_divisor_ready && s_dividend_ready) || (u_div_in_EX && u_divisor_ready && u_dividend_ready))) begin
         div_executing <= 1'b1;
     end
@@ -1853,6 +1862,9 @@ end
 reg div_valid; //?????????????
 always @(posedge aclk) begin
     if(reset) begin
+        div_valid <= 1'b0;
+    end
+    else if(flush) begin
         div_valid <= 1'b0;
     end
     else if(div_inst_EX && !div_executing) begin
