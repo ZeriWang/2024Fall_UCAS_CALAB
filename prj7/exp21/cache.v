@@ -66,7 +66,8 @@ generate
                 .addra  (data_bank_addr[i][j]   ),
                 .dina   (data_bank_wdata[i][j]  ),
                 .douta  (data_bank_rdata[i][j]  ),
-                .ena    (data_bank_we[i][j]     )
+                // .ena    (data_bank_we[i][j]     )
+                .ena    (1'b1)
             );
         end
     end
@@ -296,9 +297,11 @@ endgenerate
 generate
     for (i = 0; i < 2; i = i + 1) begin
         for (j = 0; j < 4; j = j + 1) begin
-            assign data_bank_wstrb[i][j] = wbuf_current_state == WBUF_WRITE ?          hitwr_wstrb : 
-                                           reg_op && reg_offset[3:2] == ret_data_num ? reg_wstrb : 
-                                                                                       4'b1111;
+            assign data_bank_wstrb[i][j] = {4{data_bank_we[i][j]}} & {
+                wbuf_current_state == WBUF_WRITE ?          hitwr_wstrb : 
+                reg_op && reg_offset[3:2] == ret_data_num ? reg_wstrb : 
+                                                            4'b1111
+            };
             assign data_bank_addr[i][j]  = current_state == IDLE || current_state == LOOKUP ? index : reg_index;
             assign data_bank_wdata[i][j] = wbuf_current_state == WBUF_WRITE ?          hitwr_wdata : 
                                            reg_op && reg_offset[3:2] == ret_data_num ? reg_wdata :

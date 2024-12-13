@@ -448,18 +448,34 @@ always @(posedge aclk) begin
     end
 end
 
-assign pipe_allowin[ 3:0] = ~pipe_valid[ 3:0] | (pipe_ready_go[ 3:0] & pipe_allowin[ 4:1]) | {3'b0, allowin_IF};
+assign pipe_allowin[0] = ~pipe_valid[0] | pipe_tonext_valid_IF_reg | allowin_IF;
+assign pipe_allowin[ 3:1] = ~pipe_valid[ 3:1] | (pipe_ready_go[ 3:1] & pipe_allowin[ 4:2]);
 assign pipe_allowin[4] = ~pipe_valid[4] | pipe_ready_go[4];
                                        
 assign pipe_tonext_valid[ 3:0] = pipe_allowin[ 4:1] & pipe_ready_go[ 3:0];
 
 // valid signal control in pipeline
+wire allowin_IF_control = ~pipe_valid[0] | (pipe_ready_go[0] & pipe_allowin[1]);
+reg  pipe_tonext_valid_IF_reg;
+
+always @(posedge aclk) begin
+    if(reset) begin
+        pipe_tonext_valid_IF_reg <= 1'b0;
+    end
+    else if(pipe_tonext_valid[0]) begin
+        pipe_tonext_valid_IF_reg <= 1'b1;
+    end
+    else if(pipe_valid[0]) begin
+        pipe_tonext_valid_IF_reg <= 1'b0;
+    end
+end
+
 always @(posedge aclk) begin
     if (reset) begin
         pipe_valid <= 5'b00000;
     end
     else begin
-        if (pipe_allowin[0] & ~allowin_IF) begin
+        if (allowin_IF_control) begin
             pipe_valid[0] <= pipe_ready_go_preIF_reg | pipe_ready_go_preIF;
         end
         if (br_taken) begin
@@ -613,7 +629,7 @@ always @(posedge aclk) begin
     if (reset) begin
         inst_IF_reg <= 32'h0;
     end
-    else if ((icache_data_ok & !(rvalid & (rid == 4'b0))) | inst_sram_data_ok) begin // exp21: inst_sram_data_ok -> ?
+    else if (icache_data_ok) begin // exp21: inst_sram_data_ok -> ?
         inst_IF_reg <= (icache_rdata & {32{~(br_taken | br_taken_valid)}}) | ({32{br_taken | br_taken_valid}} & 32'h03400000);
     end
 end
@@ -646,7 +662,7 @@ always @(posedge aclk) begin
     end
 end
 
-assign inst = first_IF || reg_icache_data_ok ? (icache_rdata & {32{~(br_taken | br_taken_valid)}}) |  // exp21
+assign inst = (first_IF & ~inst_IF_reg_valid) || reg_icache_data_ok ? (icache_rdata & {32{~(br_taken | br_taken_valid)}}) |  // exp21
                                              ({32{br_taken | br_taken_valid}} & 32'h03400000) : inst_IF_reg;
 
 // pre-IF stage
@@ -1244,7 +1260,8 @@ assign inst_not_exist = ~inst_add_w & ~inst_sub_w & ~inst_slt & ~inst_sltu
                       & ~inst_csrrd & ~inst_csrwr & ~inst_csrxchg 
                       & ~inst_ertn & ~inst_syscall & ~inst_break
                       & ~inst_rdcntid_w & ~inst_rdcntvl_w & ~inst_rdcntvh_w
-                      & ~inst_tlbsrch & ~inst_tlbrd & ~inst_tlbwr & ~inst_tlbfill & ~inst_invtlb; // INE exception
+                      & ~inst_tlbsrch & ~inst_tlbrd & ~inst_tlbwr & ~inst_tlbfill & ~inst_invtlb
+                      & inst_ID != 32'b0; // INE exception
 
 assign ex_ID_m = ex_ID | inst_syscall | inst_break | inst_not_exist | invtlb_op_not_exist;
 
@@ -2470,17 +2487,3 @@ assign debug_wb_rf_wnum  = dest_WB;
 assign debug_wb_rf_wdata = final_result;
 
 endmodule
-
-
-// exp10 bug: 
-// 1. something wrong with the logic of pipeline: missing some conditions of signal transmission between EX and MEM stage
-// 2. something wrong with the instantiation of divider module
-// 3. something wrong with the handshake signal logic of divider
-
-// exp11 bug:
-// 1. a datapath bug: when the instruction conflicts with a load instruction in WB stage, the register value should be mem_result_WB
-
-
-// exp13 bug:
-// 1. signal last time bug: Maybe you can be confused by the signal csr_wbex_rst/flush_rst, these signals are used to reset the signal csr_wbex/flush. In simulation, the signal csr_wbex/flush signals can last for more than one cycle, then cause some CSR/registers to be written more than once. Therefore, we cannot get the correct result. So we need to ensure that the signal csr_wbex/flush only last for one cycle to avoid this problem.
-// 2. datapath bug: Since instruction rdcntid.w get its value in the WB stage, if the instruction conflicts with other instructions in the pipeline, disastrous consequences will occur. Therefore, we need to block the pipeline when the instruction rdcntid.w is conflict with other instructions for three cycles to ensure that the instructions after rdcntid.w can get the correct value from the register file.
