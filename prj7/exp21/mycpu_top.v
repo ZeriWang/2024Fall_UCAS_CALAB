@@ -353,6 +353,7 @@ wire        inst_invtlb;
 wire        need_ui5;  // unsigned immediate 5 bit
 wire        need_si12; // signed immediate 12 bit
 wire        need_ui12; // exp10: unsigned immediate 12 bit
+wire        need_ui14; // unsigned immediate 14 bit
 wire        need_si16; // signed immediate 16 bit
 wire        need_si20; // signed immediate 20 bit
 wire        need_si26; // signed immediate 26 bit
@@ -440,7 +441,7 @@ always @(posedge aclk) begin
     if(reset) begin
         allowin_IF <= 1'b0;
     end
-    else if(inst_sram_req) begin
+    else if(inst_sram_req | icache_cache_recv_addr) begin
         allowin_IF <= 1'b0;
     end
     else if(pipe_allowin[0]) begin
@@ -448,7 +449,7 @@ always @(posedge aclk) begin
     end
 end
 
-assign pipe_allowin[0] = ~pipe_valid[0] | pipe_tonext_valid_IF_reg | allowin_IF;
+assign pipe_allowin[0] = ((~pipe_valid[0] | pipe_tonext_valid[0]) & (pipe_tonext_valid[0] | br_taken | br_taken_valid | first_pipe_IF_reg)) | allowin_IF;
 assign pipe_allowin[ 3:1] = ~pipe_valid[ 3:1] | (pipe_ready_go[ 3:1] & pipe_allowin[ 4:2]);
 assign pipe_allowin[4] = ~pipe_valid[4] | pipe_ready_go[4];
                                        
@@ -456,17 +457,14 @@ assign pipe_tonext_valid[ 3:0] = pipe_allowin[ 4:1] & pipe_ready_go[ 3:0];
 
 // valid signal control in pipeline
 wire allowin_IF_control = ~pipe_valid[0] | (pipe_ready_go[0] & pipe_allowin[1]);
-reg  pipe_tonext_valid_IF_reg;
+reg  first_pipe_IF_reg;
 
 always @(posedge aclk) begin
     if(reset) begin
-        pipe_tonext_valid_IF_reg <= 1'b0;
-    end
-    else if(pipe_tonext_valid[0]) begin
-        pipe_tonext_valid_IF_reg <= 1'b1;
+        first_pipe_IF_reg <= 1'b1;
     end
     else if(pipe_valid[0]) begin
-        pipe_tonext_valid_IF_reg <= 1'b0;
+        first_pipe_IF_reg <= 1'b0;
     end
 end
 
@@ -784,6 +782,7 @@ assign pipe_ready_go[0] = pipe_valid[0] && ((inst_rdata_ok || inst_IF_reg_valid)
 reg  [31:0] inst_ID;
 reg  [31:0] pc_ID;
 reg         ex_ID;
+wire        ex_ID_m;
 reg         inst_need_refetch_ID;
 reg  [ 5:0] csr_ecode_ID; // This signal is used to get the csr_ecode passed to ID stage
 wire [ 5:0] csr_ecode_ID_m; // This signal is used to get the csr_ecode in ID stage
@@ -1261,7 +1260,7 @@ assign inst_not_exist = ~inst_add_w & ~inst_sub_w & ~inst_slt & ~inst_sltu
                       & ~inst_ertn & ~inst_syscall & ~inst_break
                       & ~inst_rdcntid_w & ~inst_rdcntvl_w & ~inst_rdcntvh_w
                       & ~inst_tlbsrch & ~inst_tlbrd & ~inst_tlbwr & ~inst_tlbfill & ~inst_invtlb
-                      & inst_ID != 32'b0; // INE exception
+                      ;// & inst_ID != 32'b0 // INE exception
 
 assign ex_ID_m = ex_ID | inst_syscall | inst_break | inst_not_exist | invtlb_op_not_exist;
 
@@ -2148,7 +2147,7 @@ end
 wire         memory_access;
 
 assign memory_access = (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM 
-                    || inst_ld_hu_MEM || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) & ~ex_MEM_m & ~inst_need_refetch_MEM;
+                    || inst_ld_hu_MEM || inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM) & ~ex_MEM_m & ~inst_need_refetch_MEM & ~ex_WB;
 
 assign data_sram_req   = memory_access
                        && pipe_valid[3] && ~has_int_MEM && ~ex_MEM_m && ~has_int_WB && ~ex_WB
