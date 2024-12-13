@@ -1931,6 +1931,9 @@ always @(posedge aclk) begin
     if(reset) begin
         div_out_valid <= 1'b0;
     end
+    if(flush) begin
+        div_out_valid <= 1'b0;
+    end
     else if(div_inst && (!br_taken)) begin
         div_out_valid <= 1'b0;
     end
@@ -1952,7 +1955,7 @@ always @(posedge aclk) begin
     else if(pipe_tonext_valid[1] && div_inst && (!br_taken)) begin
         div_inst_EX     <= div_inst;
     end
-    else if(div_out_valid) begin
+    else if(div_out_valid || (s_div_in_EX && s_div_out_valid) || (u_div_in_EX && u_div_out_valid) || (!(s_div_in_EX || u_div_in_EX))) begin
         div_inst_EX     <= 1'b0;
     end
 end
