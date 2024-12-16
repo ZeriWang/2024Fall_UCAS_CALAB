@@ -51,6 +51,8 @@ module mycpu_top(
 
 bridge u_bridge(
     // axi4-lite interface
+    .aclk(aclk),
+    .aresetn(aresetn),
     // read request interface
     .arid(arid),
     .araddr(araddr),
@@ -106,12 +108,12 @@ bridge u_bridge(
     .inst_sram_data_ok(inst_sram_data_ok),
     .icache_rd_type(icache_rd_type),  // exp21: icache_rd_type
     // data sram interface
-    .data_sram_req(data_sram_req),
+    .data_sram_req(dcache_req),
     .data_sram_wr(data_sram_wr),
     .data_sram_size(data_sram_size),
-    .data_sram_wstrb(data_sram_wstrb),
-    .data_sram_addr(data_sram_addr),
-    .data_sram_wdata(data_sram_wdata),
+    .data_sram_wstrb(wr_wstrb),
+    .data_sram_addr(dcache_addr),
+    // .data_sram_wdata(data_sram_wdata),
     .data_sram_rdata(data_sram_rdata),
     .data_sram_addr_ok(data_sram_addr_ok),
     .data_sram_data_ok(data_sram_data_ok),
@@ -122,7 +124,10 @@ bridge u_bridge(
     .data_rdata_ok(data_rdata_ok),
     .inst_raddr_ok(inst_raddr_ok),
     .memory_access(memory_access),
-    .inst_sram_using(inst_sram_using)
+    .inst_sram_using(inst_sram_using),
+    .dcache_rd_type(dcache_rd_type), // exp22: dcache_rd_type
+    .dcache_wr_type(dcache_wr_type), // exp22: dcache_wr_type
+    .dcache_wr_data(dcache_wr_data)  // exp22: dcache_wr_data
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -422,6 +427,8 @@ wire        inst_flag_tlb_hit;
 wire        data_flag_dmw0_hit;
 wire        data_flag_dmw1_hit;
 wire        data_flag_tlb_hit;
+wire        data_dmw0_mat;
+wire        data_dmw1_mat;
 wire [ 5:0] ecode_MMU_preIF;
 reg  [ 5:0] ecode_MMU_IF;
 wire        ex_from_IF;
@@ -549,6 +556,8 @@ assign icache_wr_rdy    = 1'b1;
 cache icache(
     .clk          (aclk),
     .resetn       (aresetn),
+
+    .cachable     (1'b1),
 
     // interface to CPU
     .valid        (icache_valid),
@@ -726,7 +735,7 @@ assign nextpc       = inst_need_refetch_WB ? pc_WB :
 
 assign inst_sram_req   = pipe_allowin[0] && 
                         !((ex_WB || has_int_WB) && br_taken) && 
-                        (data_write_ok || data_rdata_ok || (!memory_access & !inst_sram_using)) && 
+                        (reg_dcache_data_ok || data_write_ok || data_rdata_ok || (!memory_access & !inst_sram_using)) && 
                         !inst_raddr_ok && !icache_cache_recv_addr
                         ;  // instruction memory enable
 assign inst_sram_wr    = 1'b0;  // instruction memory write enable
@@ -1313,7 +1322,8 @@ csr_regfile u_csr_regfile(
 	.dmw0			(csr_dmw0),
 	.dmw1			(csr_dmw1),
 	.crmd_pg		(csr_crmd_pg),
-	.crmd_plv		(csr_crmd_plv)
+	.crmd_plv		(csr_crmd_plv),
+    .crmd_datm      (csr_crmd_datm)
     );
 assign csr_we_real = csr_we_WB_m; // Really need to write CSR
 assign csr_raddr = inst_ertn ? 14'b110 :
@@ -1364,6 +1374,7 @@ wire [31:0] tlbr_entry;
 wire [31:0] csr_dmw0, csr_dmw1;
 wire		csr_crmd_pg;
 wire [ 1:0] csr_crmd_plv;
+wire [ 1:0] csr_crmd_datm;
 
 wire [ 9:0] s0_found;
 wire [ 3:0] s0_index;
@@ -2097,6 +2108,99 @@ assign csr_we_MEM_m = csr_we_MEM && ~ex_MEM_m && ~inst_need_refetch_MEM;
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DCache
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+wire         dcache_cachable;
+wire         dcache_valid;
+wire         dcache_op;
+wire [  7:0] dcache_index;
+wire [ 19:0] dcache_tag;
+wire [  3:0] dcache_offset;
+wire [  3:0] dcache_wstrb;
+wire [ 31:0] dcache_wdata;
+wire         dcache_addr_ok;
+wire         dcache_data_ok;
+wire [ 31:0] dcache_rdata;
+wire         dcache_cache_recv_addr;
+
+wire         dcache_rd_req;
+wire [  2:0] dcache_rd_type;
+wire [ 31:0] dcache_rd_addr;
+wire         dcache_rd_rdy;
+wire         dcache_ret_valid;
+wire         dcache_ret_last;
+wire [ 31:0] dcache_ret_data;
+
+wire         dcache_wr_req;
+wire [  2:0] dcache_wr_type;
+wire [ 31:0] dcache_wr_addr;
+wire [  3:0] dcache_wr_wstrb;
+wire [127:0] dcache_wr_data;
+wire         dcache_wr_rdy;
+
+wire         dcache_req;
+wire [ 31:0] dcache_addr;
+
+assign dcache_cachable  = (~csr_crmd_pg) ? (csr_crmd_datm == 2'b01) :
+                          data_flag_dmw0_hit ? (data_dmw0_mat == 2'b01) :
+                          data_flag_dmw1_hit ? (data_dmw1_mat == 2'b01) :
+                          (s1_mat == 2'b01)
+                          ;
+assign dcache_valid     = data_sram_req;
+assign dcache_op        = data_sram_wr;
+assign dcache_index     = data_sram_addr[11: 4];
+assign dcache_tag       = data_sram_addr[31:12];
+assign dcache_offset    = data_sram_addr[ 3: 0];
+assign dcache_wstrb     = data_sram_wstrb;
+assign dcache_wdata     = data_sram_wdata;
+
+assign dcache_rd_rdy    = (~data_sram_wr && arready && arid == 4'b1) || data_sram_wr;
+assign dcache_ret_valid = rvalid  &&  rid == 4'b1;
+assign dcache_ret_last  = rlast   &&  rid == 4'b1;
+assign dcache_ret_data  = data_sram_rdata;
+
+assign dcache_wr_rdy    = ~data_sram_wr || (data_sram_wr && ~dcache_cachable);
+
+assign dcache_req       = dcache_wr_req || dcache_rd_req;
+assign dcache_addr      = dcache_op ? dcache_wr_addr : dcache_rd_addr;
+
+cache dcache(
+    .clk          (aclk),
+    .resetn       (aresetn),
+
+    .cachable     (dcache_cachable),
+
+    // interface to CPU
+    .valid        (dcache_valid),
+    .op           (dcache_op),
+    .index        (dcache_index),
+    .tag          (dcache_tag),
+    .offset       (dcache_offset),
+    .wstrb        (dcache_wstrb),
+    .wdata        (dcache_wdata),
+    .addr_ok      (dcache_addr_ok),
+    .data_ok      (dcache_data_ok),
+    .rdata        (dcache_rdata),
+    .cache_recv_addr (dcache_cache_recv_addr),
+
+    // interface to bridge
+    .rd_req       (dcache_rd_req),
+    .rd_type      (dcache_rd_type),
+    .rd_addr      (dcache_rd_addr),
+    .rd_rdy       (dcache_rd_rdy),
+    .ret_valid    (dcache_ret_valid),
+    .ret_last     (dcache_ret_last),
+    .ret_data     (dcache_ret_data),
+
+    .wr_req       (dcache_wr_req),
+    .wr_type      (dcache_wr_type),
+    .wr_addr      (dcache_wr_addr),
+    .wr_wstrb     (dcache_wr_wstrb),
+    .wr_data      (dcache_wr_data),
+    .wr_rdy       (dcache_wr_rdy)
+);
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MEM stage
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 reg [3:0] current_state;
@@ -2121,27 +2225,27 @@ always @(*) begin
             if (!data_sram_req) begin
                 next_state = NR;
             end
-            else if (!data_sram_addr_ok) begin
+            else if (!dcache_cache_recv_addr) begin
                 next_state = WA;
             end
-            else if (data_sram_addr_ok && data_sram_data_ok) begin
+            else if (dcache_cache_recv_addr && (dcache_data_ok & dcache_cachable & ~(bvalid & (rid == 4'b1)) | data_sram_data_ok)) begin
                 next_state = RD;
             end
             else begin
                 next_state = WD;
             end
         WA:
-            if (data_sram_addr_ok && !data_sram_data_ok) begin
+            if (dcache_cache_recv_addr && !(dcache_data_ok & dcache_cachable & ~(bvalid & (rid == 4'b1)) | data_sram_data_ok)) begin
                 next_state = WD;
             end
-            else if (data_sram_addr_ok && data_sram_data_ok) begin
+            else if (dcache_cache_recv_addr && (dcache_data_ok & dcache_cachable & ~(bvalid & (rid == 4'b1)) | data_sram_data_ok)) begin
                 next_state = RD;
             end
             else begin
                 next_state = WA;
             end
         WD:
-            if (data_sram_data_ok) begin
+            if ((dcache_data_ok & dcache_cachable & ~(bvalid & (rid == 4'b1)) | data_sram_data_ok)) begin
                 next_state = RD;
             end
             else begin
@@ -2166,7 +2270,7 @@ assign memory_access = (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_
 
 assign data_sram_req   = memory_access
                        && pipe_valid[3] && ~has_int_MEM && ~ex_MEM_m && ~has_int_WB && ~ex_WB
-                       && (current_state == NR || current_state == WA) && !(data_waddr_ok || data_raddr_ok)
+                       && (current_state == NR || current_state == WA) && !(data_waddr_ok || data_raddr_ok || dcache_cache_recv_addr)
                        && ~inst_sram_using;
 
 // exp19
@@ -2174,7 +2278,10 @@ wire [31:0] data_sram_vaddr = alu_result_MEM;
 
 assign data_flag_dmw0_hit = csr_crmd_pg && data_sram_vaddr[31:29] == csr_dmw0[31:29] && csr_dmw0[csr_crmd_plv] == 1'b1;
 assign data_flag_dmw1_hit = csr_crmd_pg && data_sram_vaddr[31:29] == csr_dmw1[31:29] && csr_dmw1[csr_crmd_plv] == 1'b1 && !data_flag_dmw0_hit;
-assign data_flag_tlb_hit = !data_flag_dmw0_hit && !data_flag_dmw1_hit && s1_found && csr_crmd_plv <= s1_plv;
+assign data_flag_tlb_hit  = !data_flag_dmw0_hit && !data_flag_dmw1_hit && s1_found && csr_crmd_plv <= s1_plv;
+
+assign data_dmw0_mat      = csr_dmw0[5:4];
+assign data_dmw1_mat      = csr_dmw1[5:4];
 
 assign data_sram_addr  = !csr_crmd_pg ? data_sram_vaddr : (
                          {32{data_flag_dmw0_hit}} & {csr_dmw0[27:25], data_sram_vaddr[28:0]} |
@@ -2187,38 +2294,48 @@ assign data_sram_wstrb    = (inst_st_b_MEM ? (4'h1 << data_sram_addr[1:0]) :
                                           4'hf) 
                         & {4{mem_we_MEM_m && pipe_valid[3] && ~has_int_MEM && ~ex_MEM_m && ~has_int_WB && ~ex_WB}}; // If has exception in the pipeline, do not write to data_sram
 assign data_sram_wr = |data_sram_wstrb;
-assign data_sram_size = inst_ld_h_MEM || inst_ld_hu_MEM || inst_st_h_MEM ? 2'b01 :
-                        inst_ld_b_MEM || inst_ld_bu_MEM || inst_st_b_MEM ? 2'b00 :
-                        2'b10;
+assign data_sram_size = 2'b10;
 assign data_sram_wdata = inst_st_b_MEM ? {4{rkd_value_MEM[ 7:0]}} :
                          inst_st_h_MEM ? {2{rkd_value_MEM[15:0]}} :
                                          rkd_value_MEM;
 
 always @ (posedge aclk)begin
-    if(data_sram_data_ok)begin
-        mem_result <= inst_ld_b_MEM ? data_sram_addr[1:0] == 2'h0 ? {{24{data_sram_rdata[ 7]}}, data_sram_rdata[ 7: 0]} :
-                                    data_sram_addr[1:0] == 2'h1 ? {{24{data_sram_rdata[15]}}, data_sram_rdata[15: 8]} :
-                                    data_sram_addr[1:0] == 2'h2 ? {{24{data_sram_rdata[23]}}, data_sram_rdata[23:16]} :
-                                                                    {{24{data_sram_rdata[31]}}, data_sram_rdata[31:24]} :
-                    inst_ld_h_MEM ? data_sram_addr[1:0] == 2'h0 ? {{16{data_sram_rdata[15]}}, data_sram_rdata[15: 0]} :
-                                                                    {{16{data_sram_rdata[31]}}, data_sram_rdata[31:16]} :
-                    inst_ld_bu_MEM ? data_sram_addr[1:0] == 2'h0 ? {{24'b0, data_sram_rdata[ 7: 0]}} :
-                                    data_sram_addr[1:0] == 2'h1 ? {{24'b0, data_sram_rdata[15: 8]}} :
-                                    data_sram_addr[1:0] == 2'h2 ? {{24'b0, data_sram_rdata[23:16]}} :
-                                                                    {{24'b0, data_sram_rdata[31:24]}} :
-                    inst_ld_hu_MEM ? data_sram_addr[1:0] == 2'h0 ? {{16'b0, data_sram_rdata[15: 0]}} :
-                                                                    {{16'b0, data_sram_rdata[31:16]}} :
-                                                                    data_sram_rdata;
+    if((dcache_data_ok & dcache_cachable & ~(bvalid & (rid == 4'b1)) | data_sram_data_ok))begin
+        mem_result <= inst_ld_b_MEM ? data_sram_addr[1:0] == 2'h0 ? {{24{dcache_rdata[ 7]}}, dcache_rdata[ 7: 0]} :
+                                      data_sram_addr[1:0] == 2'h1 ? {{24{dcache_rdata[15]}}, dcache_rdata[15: 8]} :
+                                      data_sram_addr[1:0] == 2'h2 ? {{24{dcache_rdata[23]}}, dcache_rdata[23:16]} :
+                                                                    {{24{dcache_rdata[31]}}, dcache_rdata[31:24]} :
+                      inst_ld_h_MEM ? data_sram_addr[1:0] == 2'h0 ? {{16{dcache_rdata[15]}}, dcache_rdata[15: 0]} :
+                                                                    {{16{dcache_rdata[31]}}, dcache_rdata[31:16]} :
+                     inst_ld_bu_MEM ? data_sram_addr[1:0] == 2'h0 ? {{24'b0, dcache_rdata[ 7: 0]}} :
+                                      data_sram_addr[1:0] == 2'h1 ? {{24'b0, dcache_rdata[15: 8]}} :
+                                      data_sram_addr[1:0] == 2'h2 ? {{24'b0, dcache_rdata[23:16]}} :
+                                                                    {{24'b0, dcache_rdata[31:24]}} :
+                     inst_ld_hu_MEM ? data_sram_addr[1:0] == 2'h0 ? {{16'b0, dcache_rdata[15: 0]}} :
+                                                                    {{16'b0, dcache_rdata[31:16]}} :
+                                                                    dcache_rdata;
     end
 end
 
-
+reg         reg_dcache_data_ok;
 reg         data_waddr_ok;
 reg         data_wdata_ok;
 reg         data_write_ok;
 reg         data_raddr_ok;
 reg         data_rdata_ok;
 reg         inst_raddr_ok;
+
+always @(posedge aclk) begin
+    if(reset) begin
+        reg_dcache_data_ok <= 1'b0;
+    end
+    else if(dcache_data_ok) begin
+        reg_dcache_data_ok <= 1'b1;
+    end
+    else if(pipe_ready_go[3]) begin
+        reg_dcache_data_ok <= 1'b0;
+    end
+end
 
 always @(posedge aclk)begin
     if(reset) begin
@@ -2315,9 +2432,9 @@ wire [5:0] csr_ecode_MEM_m = inst_need_refetch_MEM ? 6'h00 :
                             || !csr_crmd_pg || data_flag_dmw0_hit || data_flag_dmw1_hit) ? 6'h00        :
                             ! s1_found                                                   ? 6'h3F        :  // TLBR
                             ! s1_v && (inst_ld_w_MEM || inst_ld_b_MEM || inst_ld_h_MEM || inst_ld_bu_MEM || inst_ld_hu_MEM)
-                                                                                            ? 6'h01	       :  // PIL
+                                                                                         ? 6'h01	    :  // PIL
                             ! s1_v && (inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM)  ? 6'h02        :  // PIH
-                            ! data_flag_tlb_hit                                          ? 6'h07	       :  // PPI
+                            ! data_flag_tlb_hit                                          ? 6'h07	    :  // PPI
                             ! s1_d && (inst_st_w_MEM || inst_st_b_MEM || inst_st_h_MEM)  ? 6'h04        :  // PME
                             6'h00
                             ;

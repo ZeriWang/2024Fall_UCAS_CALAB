@@ -1,5 +1,7 @@
 module bridge(
     // axi4-lite interface
+    input  wire        aclk,
+    input  wire        aresetn,
     // read request interface
     output wire [ 3:0] arid,
     output wire [31:0] araddr,
@@ -30,9 +32,9 @@ module bridge(
     output wire        awvalid,
     input  wire        awready,
     // write data interface
-    output wire [ 3:0] wid,
+    output reg  [ 3:0] wid,
     output wire [31:0] wdata,
-    output wire [ 3:0] wstrb,
+    output reg  [ 3:0] wstrb,
     output wire        wlast,
     output wire        wvalid,
     input  wire        wready,
@@ -60,7 +62,7 @@ module bridge(
     input  wire [ 1:0] data_sram_size,
     input  wire [ 3:0] data_sram_wstrb,
     input  wire [31:0] data_sram_addr,
-    input  wire [31:0] data_sram_wdata,
+    // input  wire [31:0] data_sram_wdata,
     output wire [31:0] data_sram_rdata,
     output wire        data_sram_addr_ok,
     output wire        data_sram_data_ok,
@@ -71,12 +73,18 @@ module bridge(
     input  wire        data_rdata_ok,
     input  wire        inst_raddr_ok,
     input  wire        memory_access,
-    input  wire        inst_sram_using
+    input  wire        inst_sram_using,
+    input  wire [ 2:0] dcache_rd_type, // exp22
+    input  wire [ 2:0] dcache_wr_type, // exp22
+    input  wire [127:0] dcache_wr_data // exp22
 );
+
+reg [31:0] wdata_buffer [3:0];
+reg [7:0]  wlen;
 
 assign arid = (!memory_access | (memory_access && (data_write_ok | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
 assign araddr = (arid == 4'b0) ? inst_sram_addr : data_sram_addr; //读地址
-assign arlen  = (arid == 4'b0) ? {2{icache_rd_type[2]}} : 8'b00000000; // exp21
+assign arlen  = (arid == 4'b0) ? {2{icache_rd_type[2]}} : {2{dcache_rd_type[2]}}; //读长度
 assign arsize = (arid == 4'b0) ? inst_sram_size : data_sram_size; //读大小
 assign arburst = 2'b01; //固定为01
 assign arlock = 2'b00; //固定为0
@@ -89,7 +97,7 @@ assign rready = (data_raddr_ok & !data_rdata_ok) | (inst_raddr_ok & (!memory_acc
 
 assign awid = 4'b0001; //固定为1
 assign awaddr = data_sram_addr; //写地址
-assign awlen = 8'b00000000; //固定为0
+assign awlen = (data_sram_req && data_sram_wr) ? {2{dcache_wr_type[2]}} : 8'b00000000; //固定为0
 assign awsize = data_sram_size; //写大小
 assign awburst = 2'b01; //固定为01
 assign awlock = 2'b00; //固定为0
@@ -97,10 +105,35 @@ assign awcache = 4'b0000; //固定为0
 assign awprot = 3'b000; //固定为0
 assign awvalid = data_sram_req & data_sram_wr; //写请求有效
 
-assign wid = 4'b0001; //固定为1
-assign wdata = data_sram_wdata; //写数据
-assign wstrb = data_sram_wstrb; //写掩码
-assign wlast = 1'b1; //固定为1
+// assign wid = 4'b0001; //固定为1
+// assign wstrb = data_sram_wstrb; //写掩码
+
+always @(posedge aclk) begin
+    if (~aresetn) begin
+        {wdata_buffer[3],wdata_buffer[2],wdata_buffer[1],wdata_buffer[0]} <= 128'b0;
+        wstrb <= 4'b0;
+        wid   <= 4'b1;
+    end
+    else if(data_sram_req & data_sram_wr) begin
+        {wdata_buffer[3],wdata_buffer[2],wdata_buffer[1],wdata_buffer[0]} <= dcache_wr_data;
+        wstrb <= data_sram_wstrb;
+    end
+end
+
+always @(posedge aclk) begin
+    if(~aresetn) begin
+        wlen <= 8'b0;
+    end
+    else if(data_sram_req & data_sram_wr) begin
+        wlen <= {6'b0, {2{dcache_wr_type[2]}}};
+    end
+    else if(wvalid & wready) begin
+        wlen <= wlen - 1;
+    end
+end
+
+assign wlast = ~|wlen[1:0]; //固定为1
+assign wdata = wdata_buffer[~wlen[1:0]]; //写数据
 assign wvalid = data_waddr_ok & !data_wdata_ok; //写请求数据有效
 
 assign bready = data_wdata_ok; // 写数据完成二次握手

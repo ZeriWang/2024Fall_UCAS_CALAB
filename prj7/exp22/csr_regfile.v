@@ -47,6 +47,7 @@ module csr_regfile(
     output [31:0] tlbr_entry,
     output        crmd_pg,
     output [ 1:0] crmd_plv,
+    output [ 1:0] crmd_datm,
     output [31:0] dmw0, dmw1
 );
 
@@ -598,6 +599,7 @@ assign tlbelo0_rdata = csr_tlbelo0_value;
 assign tlbelo1_rdata = csr_tlbelo1_value;
 assign crmd_pg = csr_crmd_pg;
 assign crmd_plv = csr_crmd_plv;
+assign crmd_datm = csr_crmd_datm;
 assign dmw0 = csr_dmw0_value;
 assign dmw1 = csr_dmw1_value;
 endmodule

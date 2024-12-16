@@ -1,6 +1,8 @@
 module cache (
     input          clk,
     input          resetn,
+    // Coherent Cache / Strongly-ordered Uncached
+    input          cachable,
     // interface to CPU
     input          valid,
     input          op, // 0: read, 1: write
@@ -116,7 +118,7 @@ always @(*) begin
             else if (cache_hit && valid && !hit_write_hazard) begin
                 next_state = LOOKUP;
             end
-            else if (reg_op && (!dirty[replace_way][reg_index] || !tagv_rdata[replace_way][0])) begin
+            else if (reg_op && (!dirty[replace_way][reg_index] || !tagv_rdata[replace_way][0]) && reg_cachable) begin
                 next_state = REPLACE;
             end
             else if (!cache_hit) begin
@@ -140,7 +142,7 @@ always @(*) begin
             end
         end
         REFILL: begin
-            if (ret_valid && ret_last) begin
+            if ((ret_valid && ret_last) || ~reg_cachable) begin
                 next_state = IDLE;
             end
             else begin
@@ -179,6 +181,7 @@ always @(*) begin
 end
 
 // Request Buffer
+reg        reg_cachable;
 reg        reg_op;
 reg [ 7:0] reg_index;
 reg [19:0] reg_tag;
@@ -188,20 +191,22 @@ reg [31:0] reg_wdata;
 
 always @(posedge clk) begin
     if (!resetn) begin
-        reg_op     <= 1'b0;
-        reg_index  <= 8'b0;
-        reg_tag    <= 20'b0;
-        reg_offset <= 4'b0;
-        reg_wstrb  <= 4'b0;
-        reg_wdata  <= 32'b0;
+        reg_cachable <= 1'b0;
+        reg_op        <= 1'b0;
+        reg_index     <= 8'b0;
+        reg_tag       <= 20'b0;
+        reg_offset    <= 4'b0;
+        reg_wstrb     <= 4'b0;
+        reg_wdata     <= 32'b0;
     end else begin
         if (next_state == LOOKUP) begin
-            reg_op     <= op;
-            reg_index  <= index;
-            reg_tag    <= tag;
-            reg_offset <= offset;
-            reg_wstrb  <= wstrb;
-            reg_wdata  <= wdata;
+            reg_cachable <= cachable;
+            reg_op        <= op;
+            reg_index     <= index;
+            reg_tag       <= tag;
+            reg_offset    <= offset;
+            reg_wstrb     <= wstrb;
+            reg_wdata     <= wdata;
         end
     end
 end
@@ -210,8 +215,8 @@ end
 wire way0_hit, way1_hit, cache_hit;
 wire hit_write, hit_write_hazard;
 
-assign way0_hit = tagv_rdata[0][0] && (tagv_rdata[0][20:1] == reg_tag);
-assign way1_hit = tagv_rdata[1][0] && (tagv_rdata[1][20:1] == reg_tag);
+assign way0_hit = tagv_rdata[0][0] && (tagv_rdata[0][20:1] == reg_tag) && reg_cachable;
+assign way1_hit = tagv_rdata[1][0] && (tagv_rdata[1][20:1] == reg_tag) && reg_cachable;
 assign cache_hit = way0_hit || way1_hit;
 assign hit_write = cache_hit && reg_op;
 assign hit_write_hazard = valid && !op && (current_state == LOOKUP && hit_write && index == reg_index && offset[3:2] == reg_offset[3:2] 
@@ -287,7 +292,7 @@ end
 // TAGV
 generate
     for (i = 0; i < 2; i = i + 1) begin
-        assign tagv_we[i] = ret_valid && ret_last && replace_way == i;
+        assign tagv_we[i] = ret_valid && ret_last && replace_way == i && reg_cachable;
         assign tagv_addr[i] = current_state == IDLE ? index : reg_index;
         assign tagv_wdata[i] = {reg_tag, 1'b1};
     end
@@ -321,24 +326,31 @@ always @(posedge clk) begin
     else if (wbuf_current_state == WBUF_WRITE) begin
         dirty[hitwr_way][hitwr_index] <= 1'b1;
     end
-    else if (ret_valid && ret_last) begin
+    else if (ret_valid && ret_last && reg_cachable) begin
         dirty[replace_way][reg_index] <= reg_op;
+    end
+    else begin
+        dirty[0] <= dirty[0];
+        dirty[1] <= dirty[1];
     end
 end
 
 
 // Pipeline Interface
 assign addr_ok = current_state == IDLE || current_state == LOOKUP && valid && cache_hit && (op || !op && !hit_write_hazard);
-assign data_ok = current_state == LOOKUP && cache_hit || current_state == LOOKUP && reg_op 
-              || current_state == REFILL && ret_valid && !reg_op && ret_data_num == reg_offset[3:2];
+assign data_ok = (current_state == LOOKUP && cache_hit) || (current_state == LOOKUP && reg_op) 
+              || (current_state == REFILL && ret_valid && !reg_op && ((ret_data_num == reg_offset[3:2] && reg_cachable) || !reg_cachable));
 
 assign rdata = load_res;
 
 // AXI Interface
 reg reg_wr_req;
-assign rd_req = current_state == REPLACE;
-assign rd_type = 3'b100;
-assign rd_addr = {reg_tag, reg_index, 4'b0};
+assign rd_req = (current_state == REPLACE) & ~(~reg_cachable & reg_op);
+assign rd_type = reg_cachable ? 3'b100 : 3'b010;
+assign rd_addr = {reg_tag, reg_index, ((~reg_cachable & ~reg_op) ? reg_offset : 4'b0)};
+
+wire [ 7: 0] addr;
+assign addr = ({8{(current_state[0] || current_state[1])}} & index) | ({8{(current_state[2] || current_state[3] || current_state[4])}} & reg_index);
 
 always @(posedge clk) begin
     if (!resetn) begin
@@ -353,8 +365,8 @@ always @(posedge clk) begin
 end
 assign wr_req = reg_wr_req;
 
-assign wr_type = 3'b100;
-assign wr_wstrb = 4'b1111;
+assign wr_type = reg_cachable ? 3'b100 : 3'b010;
+assign wr_wstrb = reg_cachable ? 4'b1111 : reg_wstrb;
 assign wr_addr = {tagv_rdata[replace_way][20:1], reg_index, reg_offset};
-assign wr_data = {8'hff, replace_data[119:0]};
+assign wr_data = reg_cachable ? {8'hff, replace_data[119:0]} : {4{reg_wdata}};
 endmodule
