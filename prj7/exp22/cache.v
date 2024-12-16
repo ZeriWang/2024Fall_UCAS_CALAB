@@ -367,6 +367,6 @@ assign wr_req = reg_wr_req;
 
 assign wr_type = reg_cachable ? 3'b100 : 3'b010;
 assign wr_wstrb = reg_cachable ? 4'b1111 : reg_wstrb;
-assign wr_addr = {tagv_rdata[replace_way][20:1], reg_index, reg_offset};
+assign wr_addr = reg_cachable ? {tagv_rdata[replace_way][20:1], reg_index, reg_offset} : {reg_tag, reg_index, reg_offset};
 assign wr_data = reg_cachable ? {8'hff, replace_data[119:0]} : {4{reg_wdata}};
 endmodule

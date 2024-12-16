@@ -90,20 +90,34 @@ assign arburst = 2'b01; //固定为01
 assign arlock = 2'b00; //固定为0
 assign arcache = 4'b0000; //固定为0
 assign arprot = 3'b000; //固定为0
-assign arvalid = (inst_sram_req) | (data_sram_req & ~data_sram_wr); //读请求有效
+assign arvalid = (inst_sram_req) | (reg_data_sram_req & ~data_sram_wr); //读请求有效
 
 assign rready = (data_raddr_ok & !data_rdata_ok) | (inst_raddr_ok & (!memory_access || (memory_access && (data_write_ok || data_rdata_ok))))
                 | inst_sram_using & inst_raddr_ok; // 数据读完成握手或指令读完成握手
 
 assign awid = 4'b0001; //固定为1
 assign awaddr = data_sram_addr; //写地址
-assign awlen = (data_sram_req && data_sram_wr) ? {2{dcache_wr_type[2]}} : 8'b00000000; //固定为0
+assign awlen = (reg_data_sram_req && data_sram_wr) ? {2{dcache_wr_type[2]}} : 8'b00000000; //固定为0
 assign awsize = data_sram_size; //写大小
 assign awburst = 2'b01; //固定为01
 assign awlock = 2'b00; //固定为0
 assign awcache = 4'b0000; //固定为0
 assign awprot = 3'b000; //固定为0
-assign awvalid = data_sram_req & data_sram_wr; //写请求有效
+assign awvalid = reg_data_sram_req & data_sram_wr; //写请求有效
+
+reg    reg_data_sram_req;
+
+always @(posedge aclk) begin
+    if(~aresetn) begin
+        reg_data_sram_req <= 1'b0;
+    end
+    else if(data_sram_req) begin
+        reg_data_sram_req <= 1'b1;
+    end
+    else if(awvalid && awready || arvalid && arready) begin
+        reg_data_sram_req <= 1'b0;
+    end
+end
 
 // assign wid = 4'b0001; //固定为1
 // assign wstrb = data_sram_wstrb; //写掩码
@@ -140,7 +154,7 @@ assign bready = data_wdata_ok; // 写数据完成二次握手
 
 assign inst_sram_rdata = rdata; //指令码
 assign inst_sram_addr_ok = arvalid & arready & (arid == 4'b0); //指令地址有效
-assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok & rlast; //指令数据有效
+assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok & rlast & (rid == 4'b0); //指令数据有效
 
 assign data_sram_rdata = {32{arid == 4'b1}} & rdata; //读数据
 assign data_sram_addr_ok = arvalid & arready & (arid == 4'b1) & ~data_sram_wr | awvalid & awready & (arid == 4'b1) & data_sram_wr & ~inst_sram_using; //数据地址有效
