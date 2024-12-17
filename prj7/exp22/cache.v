@@ -28,7 +28,9 @@ module cache (
     output [31:0]  wr_addr,
     output [ 3:0]  wr_wstrb,
     output [127:0] wr_data,
-    input          wr_rdy
+    input          wr_rdy,
+    input          data_write_ok,
+    output         write_refill
 );
 
 wire        tagv_we    [1:0];
@@ -346,7 +348,21 @@ assign rdata = load_res;
 
 // AXI Interface
 reg reg_wr_req;
-assign rd_req = (current_state == REPLACE) & ~rd_rdy & ~(~reg_cachable & reg_op);
+reg write_complete;
+
+always @(posedge clk) begin
+    if(~resetn) begin
+        write_complete <= 1'b0;
+    end
+    else if(data_write_ok) begin
+        write_complete <= 1'b1;
+    end
+    else if(rd_req) begin
+        write_complete <= 1'b0;
+    end
+end
+
+assign rd_req = (current_state == REPLACE && (~reg_op || (reg_op & reg_cachable & write_complete))) & ~rd_rdy & ~(~reg_cachable & reg_op);
 assign rd_type = reg_cachable ? 3'b100 : 3'b010;
 assign rd_addr = {reg_tag, reg_index, ((~reg_cachable & ~reg_op) ? reg_offset : 4'b0)};
 
@@ -364,6 +380,11 @@ always @(posedge clk) begin
         reg_wr_req <= 1'b0;
     end
 end
+
+wire write_refill;
+
+assign write_refill = current_state == REPLACE;
+
 assign wr_req = reg_wr_req;
 
 assign wr_type = reg_cachable ? 3'b100 : 3'b010;

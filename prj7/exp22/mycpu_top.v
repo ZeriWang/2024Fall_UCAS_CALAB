@@ -128,7 +128,8 @@ bridge u_bridge(
     .dcache_rd_type(dcache_rd_type), // exp22: dcache_rd_type
     .dcache_wr_type(dcache_wr_type), // exp22: dcache_wr_type
     .dcache_wr_data(dcache_wr_data), // exp22: dcache_wr_data
-    .dcache_cachable(dcache_cachable) // exp22: dcache_cachable
+    .dcache_cachable(dcache_cachable), // exp22: dcache_cachable
+    .dcache_write_refill(dcache_write_refill) // exp22: dcache_write_refill
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -539,6 +540,8 @@ wire [  3:0] icache_wr_wstrb;
 wire [127:0] icache_wr_data;
 wire         icache_wr_rdy;
 
+wire         icache_write_refill;
+
 assign icache_valid     = inst_sram_req;
 assign icache_op        = inst_sram_wr;
 assign icache_index     = inst_sram_addr[11: 4];
@@ -587,7 +590,9 @@ cache icache(
     .wr_addr      (icache_wr_addr),
     .wr_wstrb     (icache_wr_wstrb),
     .wr_data      (icache_wr_data),
-    .wr_rdy       (icache_wr_rdy)
+    .wr_rdy       (icache_wr_rdy),
+    .data_write_ok (1'b1),
+    .write_refill (icache_wr_req)
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2142,6 +2147,8 @@ wire         dcache_wr_rdy;
 wire         dcache_req;
 wire [ 31:0] dcache_addr;
 
+wire         dcache_write_refill;
+
 assign dcache_cachable  = (~csr_crmd_pg) ? (csr_crmd_datm == 2'b01) :
                           data_flag_dmw0_hit ? (data_dmw0_mat == 2'b01) :
                           data_flag_dmw1_hit ? (data_dmw1_mat == 2'b01) :
@@ -2155,7 +2162,7 @@ assign dcache_offset    = data_sram_addr[ 3: 0];
 assign dcache_wstrb     = data_sram_wstrb;
 assign dcache_wdata     = data_sram_wdata;
 
-assign dcache_rd_rdy    = (~data_sram_wr && arready && arid == 4'b1) || data_sram_wr;
+assign dcache_rd_rdy    = (~data_sram_wr && arready && arid == 4'b1) || (data_sram_wr && ~dcache_cachable) || (data_sram_wr && dcache_cachable && arready && arid == 4'b1);
 assign dcache_ret_valid = rvalid  &&  rid == 4'b1;
 assign dcache_ret_last  = rlast   &&  rid == 4'b1;
 assign dcache_ret_data  = data_sram_rdata;
@@ -2198,7 +2205,9 @@ cache dcache(
     .wr_addr      (dcache_wr_addr),
     .wr_wstrb     (dcache_wr_wstrb),
     .wr_data      (dcache_wr_data),
-    .wr_rdy       (dcache_wr_rdy)
+    .wr_rdy       (dcache_wr_rdy),
+    .data_write_ok(bvalid),
+    .write_refill (dcache_write_refill)
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2366,7 +2375,7 @@ always @(posedge aclk) begin
     if(reset) begin
         data_wdata_ok <= 1'b0;
     end
-    else if(wready && wvalid) begin
+    else if(wready && wvalid &&  & ((wlast & dcache_cachable) | ~dcache_cachable)) begin
         data_wdata_ok <= 1'b1;
     end
     else if(pipe_ready_go[3]) begin
@@ -2405,7 +2414,7 @@ always @(posedge aclk) begin
     else if(inst_sram_using) begin
         data_rdata_ok <= 1'b0;
     end
-    else if(rvalid & rready & memory_access & ~inst_sram_using) begin
+    else if(rvalid & rready & memory_access & ~inst_sram_using & ((rlast & dcache_cachable) | ~dcache_cachable)) begin
         data_rdata_ok <= 1'b1;
     end
     else if(pipe_ready_go[3]) begin
