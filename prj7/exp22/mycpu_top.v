@@ -111,7 +111,7 @@ bridge u_bridge(
     .data_sram_req(dcache_req),
     .data_sram_wr(data_sram_wr),
     .data_sram_size(data_sram_size),
-    .data_sram_wstrb(wr_wstrb),
+    .data_sram_wstrb(dcache_wr_wstrb),
     .data_sram_addr(dcache_addr),
     // .data_sram_wdata(data_sram_wdata),
     .data_sram_rdata(data_sram_rdata),
@@ -127,7 +127,8 @@ bridge u_bridge(
     .inst_sram_using(inst_sram_using),
     .dcache_rd_type(dcache_rd_type), // exp22: dcache_rd_type
     .dcache_wr_type(dcache_wr_type), // exp22: dcache_wr_type
-    .dcache_wr_data(dcache_wr_data)  // exp22: dcache_wr_data
+    .dcache_wr_data(dcache_wr_data), // exp22: dcache_wr_data
+    .dcache_cachable(dcache_cachable) // exp22: dcache_cachable
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2159,7 +2160,7 @@ assign dcache_ret_valid = rvalid  &&  rid == 4'b1;
 assign dcache_ret_last  = rlast   &&  rid == 4'b1;
 assign dcache_ret_data  = data_sram_rdata;
 
-assign dcache_wr_rdy    = ~data_sram_wr || (data_sram_wr && ~dcache_cachable);
+assign dcache_wr_rdy    = 1'b1;
 
 assign dcache_req       = dcache_wr_req || dcache_rd_req;
 assign dcache_addr      = dcache_op ? dcache_wr_addr : dcache_rd_addr;
@@ -2228,7 +2229,7 @@ always @(*) begin
             else if (!dcache_cache_recv_addr) begin
                 next_state = WA;
             end
-            else if (dcache_cache_recv_addr && (dcache_data_ok & dcache_cachable & ~(bvalid & (rid == 4'b1)) | data_sram_data_ok)) begin
+            else if (dcache_cache_recv_addr && (dcache_data_ok & dcache_cachable | data_sram_data_ok)) begin
                 next_state = RD;
             end
             else begin

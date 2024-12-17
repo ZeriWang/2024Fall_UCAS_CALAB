@@ -118,7 +118,7 @@ always @(*) begin
             else if (cache_hit && valid && !hit_write_hazard) begin
                 next_state = LOOKUP;
             end
-            else if (reg_op && (!dirty[replace_way][reg_index] || !tagv_rdata[replace_way][0]) && reg_cachable) begin
+            else if (~reg_op && (!dirty[replace_way][reg_index] || !tagv_rdata[replace_way][0]) && reg_cachable) begin
                 next_state = REPLACE;
             end
             else if (!cache_hit) begin
@@ -338,14 +338,15 @@ end
 
 // Pipeline Interface
 assign addr_ok = current_state == IDLE || current_state == LOOKUP && valid && cache_hit && (op || !op && !hit_write_hazard);
-assign data_ok = (current_state == LOOKUP && cache_hit) || (current_state == LOOKUP && reg_op) 
-              || (current_state == REFILL && ret_valid && !reg_op && ((ret_data_num == reg_offset[3:2] && reg_cachable) || !reg_cachable));
+assign data_ok = (current_state == LOOKUP && cache_hit) 
+                || (current_state == LOOKUP && reg_op && ~(hit_write_hazard || (current_state == LOOKUP && next_state == MISS))) 
+                || (current_state == REFILL && ret_valid && !reg_op && ((ret_data_num == reg_offset[3:2] && reg_cachable) || !reg_cachable));
 
 assign rdata = load_res;
 
 // AXI Interface
 reg reg_wr_req;
-assign rd_req = (current_state == REPLACE) & ~(~reg_cachable & reg_op);
+assign rd_req = (current_state == REPLACE) & ~rd_rdy & ~(~reg_cachable & reg_op);
 assign rd_type = reg_cachable ? 3'b100 : 3'b010;
 assign rd_addr = {reg_tag, reg_index, ((~reg_cachable & ~reg_op) ? reg_offset : 4'b0)};
 

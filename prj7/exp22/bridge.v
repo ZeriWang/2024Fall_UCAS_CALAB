@@ -76,7 +76,8 @@ module bridge(
     input  wire        inst_sram_using,
     input  wire [ 2:0] dcache_rd_type, // exp22
     input  wire [ 2:0] dcache_wr_type, // exp22
-    input  wire [127:0] dcache_wr_data // exp22
+    input  wire [127:0] dcache_wr_data,// exp22
+    input  wire        dcache_cachable// exp22
 );
 
 reg [31:0] wdata_buffer [3:0];
@@ -111,11 +112,11 @@ always @(posedge aclk) begin
     if(~aresetn) begin
         reg_data_sram_req <= 1'b0;
     end
-    else if(data_sram_req) begin
-        reg_data_sram_req <= 1'b1;
-    end
     else if(awvalid && awready || arvalid && arready) begin
         reg_data_sram_req <= 1'b0;
+    end
+    else if(data_sram_req) begin
+        reg_data_sram_req <= 1'b1;
     end
 end
 
@@ -146,7 +147,7 @@ always @(posedge aclk) begin
     end
 end
 
-assign wlast = ~|wlen[1:0]; //固定为1
+assign wlast = ~|wlen[1:0]; 
 assign wdata = wdata_buffer[~wlen[1:0]]; //写数据
 assign wvalid = data_waddr_ok & !data_wdata_ok; //写请求数据有效
 
@@ -158,6 +159,8 @@ assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok & rlast & (rid == 4'b
 
 assign data_sram_rdata = {32{arid == 4'b1}} & rdata; //读数据
 assign data_sram_addr_ok = arvalid & arready & (arid == 4'b1) & ~data_sram_wr | awvalid & awready & (arid == 4'b1) & data_sram_wr & ~inst_sram_using; //数据地址有效
-assign data_sram_data_ok = rvalid & rready & ~data_sram_wr | bvalid & bready & data_sram_wr & ~inst_sram_using; //读写数据有效
+assign data_sram_data_ok = rvalid & rready & ~data_sram_wr & (rlast & dcache_cachable) 
+                         | bvalid & bready & data_sram_wr & ~inst_sram_using & (wlast & dcache_cachable)
+                         ; //读写数据有效
 
 endmodule
