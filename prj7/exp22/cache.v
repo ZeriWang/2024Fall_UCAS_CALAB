@@ -169,12 +169,7 @@ always @(*) begin
             end
         end
         WBUF_WRITE: begin
-            if (hit_write) begin
-                wbuf_next_state = WBUF_WRITE;
-            end
-            else begin
-                wbuf_next_state = WBUF_IDLE;
-            end
+            wbuf_next_state = WBUF_IDLE;
         end
         default: begin
             wbuf_next_state = WBUF_IDLE;
@@ -383,7 +378,7 @@ end
 
 wire write_refill;
 
-assign write_refill = current_state == REPLACE;
+assign write_refill = current_state == REPLACE || current_state == REFILL;
 
 assign wr_req = reg_wr_req;
 

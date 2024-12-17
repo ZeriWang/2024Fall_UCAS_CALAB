@@ -84,7 +84,7 @@ module bridge(
 reg [31:0] wdata_buffer [3:0];
 reg [7:0]  wlen;
 
-assign arid = (!memory_access | (memory_access && (data_write_ok & ~(dcache_cachable & dcache_write_refill & (data_sram_wr & ~write_to_read)) | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
+assign arid = (!memory_access | (memory_access && (data_write_ok & ~(dcache_cachable & dcache_write_refill & ~(data_sram_wr & ~write_to_read)) | data_rdata_ok)) | inst_sram_using) ? 4'b0000 : 4'b0001; //0指令，1数据
 assign araddr = (arid == 4'b0) ? inst_sram_addr : data_sram_addr; //读地址
 assign arlen  = (arid == 4'b0) ? {2{icache_rd_type[2]}} : {2{dcache_rd_type[2]}}; //读长度
 assign arsize = (arid == 4'b0) ? inst_sram_size : data_sram_size; //读大小
@@ -94,7 +94,8 @@ assign arcache = 4'b0000; //固定为0
 assign arprot = 3'b000; //固定为0
 assign arvalid = (inst_sram_req) | (reg_data_sram_req & ~(data_sram_wr & ~write_to_read)); //读请求有效
 
-assign rready = (data_raddr_ok & !data_rdata_ok) | (inst_raddr_ok & (!memory_access || (memory_access && (data_write_ok & ~(dcache_cachable & dcache_write_refill & (data_sram_wr & ~write_to_read)) || data_rdata_ok))))
+assign rready = (data_raddr_ok & !data_rdata_ok) 
+                | (inst_raddr_ok & (!memory_access || (memory_access && (data_write_ok & ~(dcache_cachable & dcache_write_refill & ~(data_sram_wr & ~write_to_read)) || data_rdata_ok))))
                 | inst_sram_using & inst_raddr_ok; // 数据读完成握手或指令读完成握手
 
 assign awid = 4'b0001; //固定为1
@@ -161,7 +162,7 @@ assign inst_sram_data_ok = rvalid & rready & inst_raddr_ok & rlast & (rid == 4'b
 assign data_sram_rdata = {32{arid == 4'b1}} & rdata; //读数据
 assign data_sram_addr_ok = arvalid & arready & (arid == 4'b1) & ~(data_sram_wr & ~write_to_read) | awvalid & awready & (arid == 4'b1) & (data_sram_wr & ~write_to_read) & ~inst_sram_using; //数据地址有效
 assign data_sram_data_ok = rvalid & rready & ~(data_sram_wr & ~write_to_read) & ((rlast & dcache_cachable) | ~dcache_cachable)
-                         | bvalid & bready & (data_sram_wr & ~write_to_read) & ~inst_sram_using & ~(dcache_cachable & dcache_write_refill & (data_sram_wr & ~write_to_read))
+                         | bvalid & bready & (data_sram_wr & ~write_to_read) & ~inst_sram_using & ~(dcache_cachable & dcache_write_refill)
                          ; //读写数据有效
 
 reg write_to_read;

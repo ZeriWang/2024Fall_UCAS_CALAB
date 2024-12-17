@@ -741,7 +741,7 @@ assign nextpc       = inst_need_refetch_WB ? pc_WB :
 
 assign inst_sram_req   = pipe_allowin[0] && 
                         !((ex_WB || has_int_WB) && br_taken) && 
-                        ((reg_dcache_data_ok & dcache_cachable) || data_write_ok || data_rdata_ok || (!memory_access & !inst_sram_using)) && 
+                        ((reg_dcache_data_ok & dcache_cachable) || (data_write_ok & ~(dcache_write_refill & data_sram_wr)) || data_rdata_ok || (!memory_access & !inst_sram_using)) && 
                         !inst_raddr_ok && !icache_cache_recv_addr
                         ;  // instruction memory enable
 assign inst_sram_wr    = 1'b0;  // instruction memory write enable
