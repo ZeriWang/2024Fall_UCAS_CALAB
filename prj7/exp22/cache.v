@@ -368,7 +368,7 @@ always @(posedge clk) begin
     if (!resetn) begin
         reg_wr_req <= 1'b0;
     end
-    else if (current_state == MISS && next_state == REPLACE) begin
+    else if (current_state == MISS && next_state == REPLACE && (tagv_rdata[replace_way][0] && dirty[replace_way][reg_index] || ~reg_cachable)) begin
         reg_wr_req <= 1'b1;
     end
     else if (wr_rdy) begin
