@@ -30,7 +30,8 @@ module cache (
     output [127:0] wr_data,
     input          wr_rdy,
     input          data_write_ok,
-    output         write_refill
+    output         write_refill,
+    output reg     write_complete
 );
 
 wire        tagv_we    [1:0];
@@ -343,13 +344,12 @@ assign rdata = load_res;
 
 // AXI Interface
 reg reg_wr_req;
-reg write_complete;
 
 always @(posedge clk) begin
     if(~resetn) begin
         write_complete <= 1'b0;
     end
-    else if(data_write_ok) begin
+    else if(data_write_ok || (reg_cachable && reg_op && ~(tagv_rdata[replace_way][0] && dirty[replace_way][reg_index]))) begin
         write_complete <= 1'b1;
     end
     else if(rd_req) begin
@@ -379,6 +379,7 @@ end
 wire write_refill;
 
 assign write_refill = current_state == REPLACE || current_state == REFILL;
+
 
 assign wr_req = reg_wr_req;
 

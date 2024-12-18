@@ -129,7 +129,8 @@ bridge u_bridge(
     .dcache_wr_type(dcache_wr_type), // exp22: dcache_wr_type
     .dcache_wr_data(dcache_wr_data), // exp22: dcache_wr_data
     .dcache_cachable(dcache_cachable), // exp22: dcache_cachable
-    .dcache_write_refill(dcache_write_refill) // exp22: dcache_write_refill
+    .dcache_write_refill(dcache_write_refill), // exp22: dcache_write_refill
+    .dcache_write_complete(dcache_write_complete) // exp22: dcache_write_complete
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -541,6 +542,7 @@ wire [127:0] icache_wr_data;
 wire         icache_wr_rdy;
 
 wire         icache_write_refill;
+wire         icache_write_complete;
 
 assign icache_valid     = inst_sram_req;
 assign icache_op        = inst_sram_wr;
@@ -592,7 +594,8 @@ cache icache(
     .wr_data      (icache_wr_data),
     .wr_rdy       (icache_wr_rdy),
     .data_write_ok (1'b1),
-    .write_refill (icache_wr_req)
+    .write_refill (icache_wr_req),
+    .write_complete (icache_write_complete)
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2148,6 +2151,7 @@ wire         dcache_req;
 wire [ 31:0] dcache_addr;
 
 wire         dcache_write_refill;
+wire         dcache_write_complete;
 
 assign dcache_cachable  = (~csr_crmd_pg) ? (csr_crmd_datm == 2'b01) :
                           data_flag_dmw0_hit ? (data_dmw0_mat == 2'b01) :
@@ -2207,7 +2211,8 @@ cache dcache(
     .wr_data      (dcache_wr_data),
     .wr_rdy       (dcache_wr_rdy),
     .data_write_ok(bvalid),
-    .write_refill (dcache_write_refill)
+    .write_refill (dcache_write_refill),
+    .write_complete(dcache_write_complete)
 );
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

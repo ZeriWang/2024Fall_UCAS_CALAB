@@ -78,7 +78,8 @@ module bridge(
     input  wire [ 2:0] dcache_wr_type, // exp22
     input  wire [127:0]dcache_wr_data,// exp22
     input  wire        dcache_cachable,// exp22
-    input  wire        dcache_write_refill// exp22
+    input  wire        dcache_write_refill,// exp22
+    input  wire        dcache_write_complete// exp22
 );
 
 reg [31:0] wdata_buffer [3:0];
@@ -171,7 +172,7 @@ always @(posedge aclk) begin
     if(~aresetn) begin
         write_to_read <= 1'b0;
     end
-    else if(bvalid & bready & (data_sram_wr & ~write_to_read) & ~inst_sram_using & dcache_cachable & dcache_write_refill) begin
+    else if(dcache_write_complete & (data_sram_wr & ~write_to_read) & ~inst_sram_using & dcache_cachable & dcache_write_refill) begin
         write_to_read <= 1'b1;
     end
     else if(data_sram_data_ok) begin
